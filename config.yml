@@ -1,4 +1,7 @@
-K: [2257.7500557850776,0,1032,0,2257.4882391629421,772,0,0,1]
+# 相机内参
+K: [2257.7500557850776, 0,                  1032,
+    0,                  2257.4882391629421, 772,
+    0,                  0,                  1]
 H: 1544   # image height
 W: 2064   # image width
 zfar: 3   # Depth clip distance
@@ -41,7 +44,7 @@ dataset:
     train:
       [
         hnm_ENG_CVM_CVM_T2032162201-000B.obj,
-        hnm_cylinder_ENG_CVM_CVM_T2111020201-007_A.obj,
+        hnm_cylinder_ENG_CVM_CVM_T2111032201-007_A.obj,
         hnm_ENG_CVM_CVM_T2030242201-000B.obj,
         hnm_ENG_CVM_CVM_T2050182201-000B.obj,
       ]
@@ -50,7 +53,7 @@ dataset:
       [
         hnm_ENG_CVM_CVM_T2050322201-000B.obj,
         hnm_nist_waterproof_male.obj,
-        hnm_cylinder_ENG_CVM_CVM_T2111032201-007_A.obj,
+        hnm_cylinder_ENG_CVM_CVM_T2111020201-007_A.obj,
         hnm_ENG_CVM_CVM_T2050323201-000B.obj,
       ]
 
@@ -73,12 +76,12 @@ dataset:
         "screw_pan_head_cross_recess_screw_iso7045.obj",
         "screw_torx-conical-headed-t25-m5x10-screw.obj",
         "screw_carr_3503K61_PLASTIC.obj",
-        'screw_carr_6479K79_BLACK.obj'
+        "screw_carr_6479K79_BLACK.obj"
       ]
     test:
       [
-        'screw_carr_94323A329_NYLON.obj',
+        "screw_carr_94323A329_NYLON.obj",
         "screw_carr_97334A764_NYLON.obj",
         "screw_carr_97435A401_WEAR.obj",
-        'screw_carr_63625K310_POLYPROPYLENE.obj',
+        "screw_carr_63625K310_POLYPROPYLENE.obj",
       ]

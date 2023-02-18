@@ -16,9 +16,11 @@ place_pose_dict = {}  # Placement pose relative to placeholder, a pair of pose b
 place_pose_dict['nut'] = [np.eye(4),np.eye(4)]
 place_pose_dict['nut'][0][:3,3] += np.array([0,0,0.15])
 place_pose_dict['nut'][1][:3,3] += np.array([0,0,0.08])
+
 place_pose_dict['hnm'] = [np.eye(4),np.eye(4)]
 place_pose_dict['hnm'][0][:3,3] -= np.array([0,0,0.05])
 place_pose_dict['hnm'][1][:3,3] -= np.array([0,0,0.02])
+
 place_pose_dict['screw'] = [np.eye(4),np.eye(4)]
 place_pose_dict['screw'][0][:3,3] = [0,0,-0.07]
 place_pose_dict['screw'][1][:3,3] = [0,0,-0.02]
@@ -38,9 +40,16 @@ def get_class_name(ob_dir):
 def get_place_success_func(class_name):
   if class_name=='nut':
     def func(ob_pose,place_pose):
+      '''
+        ob_pose: 物体位姿（下落稳定的）
+        place_pose: placeholder 位姿
+      '''
+
+      # 检查物体和 placeholder 在 xy 平面的偏移量
       if np.linalg.norm(ob_pose[:2,3]-place_pose[:2,3])>0.005:
         print('placement check failed: center dist',np.linalg.norm(ob_pose[:2,3]-place_pose[:2,3]))
         return False
+      # 检查两者的高度差
       if np.abs(ob_pose[2,3]-place_pose[2,3])>0.02:
         print(f'placement check failed: height wrong, ob_pose[2,3]={ob_pose[2,3]}, place_pose[2,3]={place_pose[2,3]}')
         return False
@@ -136,6 +145,8 @@ def load_model(model,ckpt_dir):
   state_dict = torch.load(ckpt_dir,map_location=torch.device("cpu"))
   if 'state_dict' in state_dict:
     state_dict = state_dict['state_dict']
+  elif 'model' in state_dict:
+    state_dict = state_dict['model']
   print("Load ckpt from {}".format(ckpt_dir))
 
   try:
@@ -499,3 +510,68 @@ def compute_cloud_resolution(pts,n_sample=100):
   dists = np.array(dists[np.isfinite(dists)])
   resolution = np.sort(dists)[:10].mean()
   return resolution
+
+def log(print_str, fn):
+  with open(fn, "a+") as f:
+      f.write(print_str)
+      f.write("\n")
+
+def coordinate2index(x, reso, coord_type='2d'):
+  ''' Normalize coordinate to [0, 1] for unit cube experiments.
+      Corresponds to our 3D model
+
+  Args:
+      x (tensor): coordinate
+      reso (int): defined resolution
+      coord_type (str): coordinate type
+  '''
+  x = (x * reso).long()
+  if coord_type == '2d': # plane
+      index = x[:, :, 0] + reso * x[:, :, 1]
+  elif coord_type == '3d': # grid
+      index = x[:, :, 0] + reso * (x[:, :, 1] + reso * x[:, :, 2])
+  index = index[:, None, :]
+  return index
+
+def normalize_coordinate(p, padding=0.1, plane='xz'):
+  ''' Normalize coordinate to [0, 1] for unit cube experiments
+
+  Args:
+      p (tensor): point
+      padding (float): conventional padding paramter of ONet for unit cube, so [-0.5, 0.5] -> [-0.55, 0.55]
+      plane (str): plane feature type, ['xz', 'xy', 'yz']
+  '''
+  if plane == 'xz':
+      xy = p[:, :, [0, 2]]
+  elif plane =='xy':
+      xy = p[:, :, [0, 1]]
+  else:
+      xy = p[:, :, [1, 2]]
+
+  xy_new = xy / (1 + padding + 10e-6) # (-0.5, 0.5)
+  xy_new = xy_new + 0.5 # range (0, 1)
+
+  # f there are outliers out of the range
+  if xy_new.max() >= 1:
+      xy_new[xy_new >= 1] = 1 - 10e-6
+  if xy_new.min() < 0:
+      xy_new[xy_new < 0] = 0.0
+  return xy_new
+
+def normalize_3d_coordinate(p, padding=0.1):
+  ''' Normalize coordinate to [0, 1] for unit cube experiments.
+      Corresponds to our 3D model
+
+  Args:
+      p (tensor): point
+      padding (float): conventional padding paramter of ONet for unit cube, so [-0.5, 0.5] -> [-0.55, 0.55]
+  '''
+  
+  p_nor = p / (1 + padding + 10e-4) # (-0.5, 0.5)
+  p_nor = p_nor + 0.5 # range (0, 1)
+  # f there are outliers out of the range
+  if p_nor.max() >= 1:
+      p_nor[p_nor >= 1] = 1 - 10e-4
+  if p_nor.min() < 0:
+      p_nor[p_nor < 0] = 0.0
+  return p_nor

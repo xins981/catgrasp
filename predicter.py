@@ -33,8 +33,7 @@ from multiprocessing import Pool
 import multiprocessing
 from functools import partial
 from itertools import repeat
-
-
+from pybullet_env.utils_pybullet import get_ob_pose_in_world
 
 class GraspPredicter:
   def __init__(self,class_name):
@@ -62,7 +61,6 @@ class GraspPredicter:
     self.model = PointNetCls(n_in=self.cfg['input_channel'],n_out=len(self.cfg['classes'])-1)
     self.model = load_model(self.model,ckpt_dir='{}/best_val.pth.tar'.format(artifact_dir))
     self.model.cuda().eval()
-
 
   def predict_batch(self,data,grasp_poses):
     with torch.no_grad():
@@ -94,9 +92,8 @@ class GraspPredicter:
     return out
 
 
-
 class NunocsPredicter:
-  def __init__(self,class_name):
+  def __init__(self,class_name, art_dir=None, env=None):
     self.class_name = class_name
     self.class_name_to_artifact_id = {
       'nut': 78,
@@ -115,7 +112,10 @@ class NunocsPredicter:
 
     artifact_id = self.class_name_to_artifact_id[class_name]
     code_dir = os.path.dirname(os.path.realpath(__file__))
-    artifact_dir = f"{code_dir}/artifacts/artifacts-{artifact_id}"
+    if art_dir != None:
+      artifact_dir = art_dir
+    else:
+      artifact_dir = f"{code_dir}/artifacts/artifacts-{artifact_id}"
     print('NunocsPredicter artifact_dir',artifact_dir)
     with open(f"{artifact_dir}/config_nunocs.yml",'r') as ff:
       self.cfg = yaml.safe_load(ff)
@@ -127,79 +127,115 @@ class NunocsPredicter:
     self.dataset = NunocsIsolatedDataset(self.cfg,phase='test')
 
     self.model = PointNetSeg(n_in=self.cfg['input_channel'],n_out=3*self.cfg['ce_loss_bins'])
-
-    self.model = load_model(self.model,ckpt_dir='{}/best_val.pth.tar'.format(artifact_dir))
+    if art_dir != None:
+      self.model = load_model(self.model,ckpt_dir='{}/best_model.pth'.format(artifact_dir))
+    else:
+      self.model = load_model(self.model,ckpt_dir='{}/best_val.pth.tar'.format(artifact_dir))
     self.model.cuda().eval()
 
+    with gzip.open(f'{code_dir}/data/object_models/{class_name}_test_canonical2general.pkl','rb') as ff:
+      self.transforms_to_general = pickle.load(ff)
+    self.env = env
 
-  def predict(self,data):
+  def predict(self,data, cal_transform=True, obj_file=None, obj_id_in_env=None, debug_dir=None, i_pick=None):
     with torch.no_grad():
-      data['cloud_nocs'] = np.zeros(data['cloud_xyz'].shape)
+      data['cloud_nocs'] = np.zeros(data['cloud_xyz'].shape) # data: 相机系数据
       data['cloud_rgb'] = np.zeros(data['cloud_xyz'].shape)
       data_transformed = self.dataset.transform(copy.deepcopy(data))
       self.data_transformed = data_transformed
       ori_cloud = data_transformed['cloud_xyz_original']
       input_data = torch.from_numpy(data_transformed['input']).cuda().float().unsqueeze(0)
 
-      pred = self.model(input_data)[0].reshape(-1,3,self.cfg['ce_loss_bins'])
+      # 预测网格转换为 nocs 坐标
+      pred = self.model(input_data)[0].reshape(-1,3,self.cfg['ce_loss_bins']) # (1, N, 300) reshape to (N, 3, 100)
       bin_resolution = 1/self.cfg['ce_loss_bins']
-      pred_coords = pred.argmax(dim=-1).float()*bin_resolution
+      pred_coords = pred.argmax(dim=-1).float()*bin_resolution # 坐标归一化为 0~1 
+      nocs_cloud = pred_coords.data.cpu().numpy() - 0.5 # 标准坐标系平移到零件形心
+
+      #region 提取每个点 Z 分量的概率值, 调试用
       probs = pred.softmax(dim=-1)
       confidence_z = torch.gather(probs[:,2,:],dim=-1,index=pred[:,2,:].argmax(dim=-1).unsqueeze(-1)).data.cpu().numpy().reshape(-1)
       conf_color = array_to_heatmap_rgb(confidence_z)
-      nocs_cloud = pred_coords.data.cpu().numpy()-0.5
+      pcd = toOpen3dCloud(nocs_cloud, conf_color)
+      o3d.io.write_point_cloud(f'{debug_dir}/{i_pick}_confidence_z.ply',pcd)
+      #endregion
+      
+      nocs_cloud_down = copy.deepcopy(nocs_cloud) # 网络预测的 nocs 坐标
+      ori_cloud_down = copy.deepcopy(ori_cloud) # 零件点云相机坐标
 
-      nocs_cloud_down = copy.deepcopy(nocs_cloud)
-      ori_cloud_down = copy.deepcopy(ori_cloud)
+      
+      if cal_transform:
+        best_ratio = 0
+        best_transform = None
+        best_nocs_cloud = None
+        best_symmetry_tf = None
+        for symmetry_tf in [np.eye(4)]:
+          tmp_nocs_cloud_down = (symmetry_tf@to_homo(nocs_cloud_down).T).T[:,:3]
+          for thres in [0.003,0.005]:
+            use_kdtree_for_eval = False
+            kdtree_eval_resolution = 0.003
+            # trasnform 标准空间——>相机空间
+            transform, inliers = estimate9DTransform(source=tmp_nocs_cloud_down,target=ori_cloud_down,PassThreshold=thres,
+                                                      max_iter=10000,use_kdtree_for_eval=use_kdtree_for_eval,
+                                                      kdtree_eval_resolution=kdtree_eval_resolution,max_scale=self.max_scale,
+                                                      min_scale=self.min_scale,max_dimensions=np.array([1.2,1.2,1.2]))
+            if transform is None:
+              continue
 
-      best_ratio = 0
-      best_transform = None
-      best_nocs_cloud = None
-      best_symmetry_tf = None
-      for symmetry_tf in [np.eye(4)]:
-        tmp_nocs_cloud_down = (symmetry_tf@to_homo(nocs_cloud_down).T).T[:,:3]
-        for thres in [0.003,0.005]:
-          use_kdtree_for_eval = False
-          kdtree_eval_resolution = 0.003
-          transform, inliers = estimate9DTransform(source=tmp_nocs_cloud_down,target=ori_cloud_down,PassThreshold=thres,max_iter=10000,use_kdtree_for_eval=use_kdtree_for_eval,kdtree_eval_resolution=kdtree_eval_resolution,max_scale=self.max_scale,min_scale=self.min_scale,max_dimensions=np.array([1.2,1.2,1.2]))
-          if transform is None:
-            continue
+            if np.linalg.det(transform[:3,:3])<0:
+              continue
+            scales = np.linalg.norm(transform[:3,:3],axis=0)
+            print("thres",thres)
+            print("estimated scales",scales)
+            print("transform:\n",transform)
+            transformed = (transform@to_homo(tmp_nocs_cloud_down).T).T[:,:3] # 标准空间点云 -> 相机系
+            err_thres = 0.003
 
-          if np.linalg.det(transform[:3,:3])<0:
-            continue
-          scales = np.linalg.norm(transform[:3,:3],axis=0)
-          print("thres",thres)
-          print("estimated scales",scales)
-          print("transform:\n",transform)
-          transformed = (transform@to_homo(tmp_nocs_cloud_down).T).T[:,:3]
-          err_thres = 0.003
+            cloud_at_canonical = (np.linalg.inv(transform)@to_homo(ori_cloud_down).T).T[:,:3]
+            dimensions = cloud_at_canonical.max(axis=0)-cloud_at_canonical.min(axis=0)
+            print("estimated canonical dimensions",dimensions)
 
-          cloud_at_canonical = (np.linalg.inv(transform)@to_homo(ori_cloud_down).T).T[:,:3]
-          dimensions = cloud_at_canonical.max(axis=0)-cloud_at_canonical.min(axis=0)
-          print("estimated canonical dimensions",dimensions)
+            errs = np.linalg.norm(transformed-ori_cloud_down, axis=1)
+            ratio = np.sum(errs<=err_thres)/len(errs)
+            inliers = np.where(errs<=err_thres)[0]
 
-          errs = np.linalg.norm(transformed-ori_cloud_down, axis=1)
-          ratio = np.sum(errs<=err_thres)/len(errs)
-          inliers = np.where(errs<=err_thres)[0]
+            print("inlier ratio",ratio)
 
-          print("inlier ratio",ratio)
+            if ratio>best_ratio:
+              best_ratio = ratio
+              best_symmetry_tf = symmetry_tf
+              best_transform = transform.copy()
+              best_nocs_cloud = copy.deepcopy(tmp_nocs_cloud_down)
+        
+        if best_transform is None:
+          return None,None
 
-          if ratio>best_ratio:
-            best_ratio = ratio
-            best_symmetry_tf = symmetry_tf
-            best_transform = transform.copy()
-            best_nocs_cloud = copy.deepcopy(tmp_nocs_cloud_down)
+        print(f"nocs predictor best_ratio={best_ratio}, scales={np.linalg.norm(best_transform[:3,:3],axis=0)}")
+        print("nocs pose\n",best_transform)
+        self.best_ratio = best_ratio
+        transform = best_transform
+        self.nocs_pose = transform.copy()
+        nocs_cloud = (best_symmetry_tf@to_homo(nocs_cloud).T).T[:,:3]
+      else:
+        err_thres = 0.003
+        obj2world = get_ob_pose_in_world(obj_id_in_env)
+        cam2world = self.env.cam_in_world
+        obj2cam = np.linalg.inv(cam2world) @ obj2world
+        nocs2obj = self.transforms_to_general['nocs_to_obj'][obj_file]
+        nocs2cam = obj2cam @ nocs2obj
 
-      if best_transform is None:
-        return None,None
+        transform = nocs2cam
+        part_in_cam = data_transformed['cloud_xyz_original']
+        # cam2nocs = np.linalg.inv(nocs2cam)
+        # part_in_nocs = (cam2nocs @ to_homo(part_in_cam).T).T[:,:3]
+        part_in_nocs = nocs_cloud_down
+        part_in_cam_transformed = (nocs2cam @ to_homo(part_in_nocs).T).T[:,:3]
+        errs = np.linalg.norm(part_in_cam_transformed-part_in_cam, axis=1)
+        self.best_ratio = np.sum(errs<=err_thres)/len(errs)
+        self.nocs_pose = transform.copy()
+        nocs_cloud = part_in_nocs
 
-      print(f"nocs predictor best_ratio={best_ratio}, scales={np.linalg.norm(best_transform[:3,:3],axis=0)}")
-      print("nocs pose\n",best_transform)
-      self.best_ratio = best_ratio
-      transform = best_transform
-      self.nocs_pose = transform.copy()
-      nocs_cloud = (best_symmetry_tf@to_homo(nocs_cloud).T).T[:,:3]
-
+      # nocs_cloud 标准点云， transform 标准系到相机系的变换矩阵
       return nocs_cloud, transform
 
 
@@ -227,7 +263,6 @@ class PointGroupPredictor:
     self.model.cuda().eval()
 
     self.n_slice_per_side = 1
-
 
   def predict(self,data):
     with torch.no_grad():

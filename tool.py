@@ -24,6 +24,7 @@ from autolab_core import YamlConfig
 from dexnet.grasping.gripper import save_grasp_pose_mesh
 from renderer import ModelRendererOffscreen
 import mpl_toolkits.mplot3d.axes3d as p3
+os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
 
 
@@ -41,8 +42,8 @@ def compute_nunocs_label_worker(color_file):
   mesh_pts = None
   env_body_ids = meta['env_body_ids']
   K = meta['K']
-  poses = meta['poses']
-  xyz_map = depth2xyzmap(depth,K)
+  poses = meta['poses'] # 物体位姿（世界系）
+  xyz_map = depth2xyzmap(depth, K) # 深度图转点云（相机系）
   seg = cv2.imread(color_file.replace('rgb','seg'),-1)
   seg_ids = np.unique(seg)
   nocs_image = np.zeros((H,W,3))
@@ -61,21 +62,22 @@ def compute_nunocs_label_worker(color_file):
       mesh_pts = mesh.vertices.copy()*mesh_scale
       max_xyz = mesh_pts.max(axis=0).reshape(1,3)
       min_xyz = mesh_pts.min(axis=0).reshape(1,3)
-      center_xyz = (max_xyz+min_xyz)/2
+      center_xyz = (max_xyz+min_xyz)/2 # 物体 CAD 中心点(物体系)
 
     valid_mask = (seg==seg_id) & (xyz_map[...,2]>=0.1)
-    tmp_xyz = xyz_map[valid_mask].reshape(-1,3)
+    tmp_xyz = xyz_map[valid_mask].reshape(-1,3) # 单个实例点云（杂乱场景，单视角）
     ob_in_world = poses[seg_id].copy()
-    cam_in_world = meta['cam_in_world'].copy()
+    cam_in_world = meta['cam_in_world'].copy() 
     ob_in_cam = np.linalg.inv(cam_in_world)@ob_in_world
     cam_in_ob = np.linalg.inv(ob_in_cam)
-    tmp_xyz = (cam_in_ob@to_homo(tmp_xyz).T).T[:,:3]
+    tmp_xyz = (cam_in_ob@to_homo(tmp_xyz).T).T[:,:3]  # 相机坐标转为物体坐标（欧氏空间）
 
     nunocs_scale = 1.
-    nocs_xyz = (tmp_xyz-center_xyz) / (max_xyz-min_xyz).reshape(1,3)  #[-0.5,0.5]
-    nocs_xyz = np.clip(nocs_xyz,-0.5,0.5)
+    # 物体系平移到 CAD 中心点，然后放缩到单位空间 [-0.5,0.5]
+    nocs_xyz = (tmp_xyz-center_xyz) / (max_xyz-min_xyz).reshape(1,3)  
+    nocs_xyz = np.clip(nocs_xyz, -0.5, 0.5)
     nocs_xyz /= nunocs_scale
-    nocs_image[valid_mask] = (nocs_xyz+0.5)*255
+    nocs_image[valid_mask] = (nocs_xyz + 0.5) * 255
 
   out_file = color_file.replace('rgb','nunocs')
   nocs_image = np.clip(nocs_image,0,255)
@@ -431,7 +433,7 @@ if __name__=="__main__":
   class_name = args.class_name
   gripper = RobotGripper.load(gripper_dir=cfg_grasp['gripper_dir'][class_name])
 
-  compute_nunocs_label()
+  compute_nunocs_label() # 制作 nunocs 标签，训练标准化网络
   fill_depth_normal()
   compute_per_ob_visibility()
   make_isolated_training_data()
