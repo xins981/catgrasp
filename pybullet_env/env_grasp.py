@@ -43,6 +43,7 @@ class EnvGrasp(EnvBase):
       cfg_grasp = yaml.safe_load(ff)
     self.cfg_grasp = cfg_grasp
 
+    # 构造两个手指
     self.gripper = gripper
     gripper_dir = gripper.gripper_folder
     print("gripper_dir",gripper_dir)
@@ -56,8 +57,9 @@ class EnvGrasp(EnvBase):
     self.gripper_id = p.loadURDF(gripper_urdf, [0, 0, 0], useFixedBase=True)
     self.id_to_obj_file[self.gripper_id] = gripper_urdf
     self.finger_ids = np.array([1,2],dtype=int)
-    self.gripper_max_force = np.ones((2),dtype=float)*100
-    p.changeDynamics(self.gripper_id,-1,lateralFriction=0.9,spinningFriction=0.9)
+    self.gripper_max_force = np.ones((2),dtype=float)*100 # 小括号中只有一个元素，没有加逗号，作用就是括号的作用。不是元组。
+    p.changeDynamics(self.gripper_id, -1, lateralFriction=0.9, spinningFriction=0.9)
+    # grasp 和 gripper 有什么关系？grasp 系应该是在手指尖建立的，gripper 系是在手腕处建立的
     self.grasp_pose_in_gripper_base = self.gripper.get_grasp_pose_in_gripper_base()
     self.grip_dirs = np.array([[0,1,0],[0,-1,0]])
 
@@ -85,22 +87,22 @@ class EnvGrasp(EnvBase):
 
 
   def verify_grasp(self,grasp_in_world):
-    self.open_gripper()
-    set_body_pose_in_world(self.ob_id,np.eye(4))
-    self.set_gripper_pose_from_grasp_pose(grasp_in_world)
-    if PU.body_collision(self.gripper_id,self.ob_id):
+    self.open_gripper() # 张开手指
+    set_body_pose_in_world(self.ob_id,np.eye(4)) # 设置零件位姿
+    self.set_gripper_pose_from_grasp_pose(grasp_in_world) # 设置 gripper 位姿
+    if PU.body_collision(self.gripper_id,self.ob_id): # 检测初始手指和零件的碰撞
       return False
 
-    self.close_gripper()
-
-    ob_init_pose = get_ob_pose_in_world(self.ob_id)
+    self.close_gripper() # 手指闭合
+ 
+    ob_init_pose = get_ob_pose_in_world(self.ob_id) # 零件初始位姿
     for _ in range(50):
-      add_gravity_to_ob(self.ob_id,gravity=-10)
+      add_gravity_to_ob(self.ob_id,gravity=-10) # 对零件施加重力
       p.stepSimulation()
 
     success = False
     ob_final_pose = get_ob_pose_in_world(self.ob_id)
-    if np.linalg.norm(ob_init_pose[:3,3]-ob_final_pose[:3,3])<=0.02:
+    if np.linalg.norm(ob_init_pose[:3,3]-ob_final_pose[:3,3])<=0.02: # 手指闭合后零件的移动距离
       success = True
     else:
       success = False
@@ -244,7 +246,7 @@ def get_finger_contact_area(finger_mesh,ob_in_finger,ob_pts,grip_dir,ob_normals=
     grip_dir = np.array(grip_dir)
     grip_dir = grip_dir/np.linalg.norm(grip_dir)
     pcd = toOpen3dCloud(ob_pts,normals=ob_normals)
-    pcd.transform(ob_in_finger)
+    pcd.transform(ob_in_finger) # 模板（手指系）
 
     cur_ob_pts = np.asarray(pcd.points).copy()
     if ob_normals is not None:
@@ -257,6 +259,7 @@ def get_finger_contact_area(finger_mesh,ob_in_finger,ob_pts,grip_dir,ob_normals=
     if ob_normals is not None:
       within_finger_normals = cur_ob_normals[within_finger_mask]
 
+    # 闭合区域内的点到手指（单侧）的距离
     if np.allclose(grip_dir,np.array([0,1,0])):
       dist_to_finger_surface = np.abs(within_finger_pts[:,1]-within_finger_pts[:,1].min())  #The bottom points touches finger firstly
     elif np.allclose(grip_dir,np.array([0,-1,0])):
@@ -279,5 +282,5 @@ def get_finger_contact_area(finger_mesh,ob_in_finger,ob_pts,grip_dir,ob_normals=
       if dot>0:
         return None,None
 
-    surface_pts = (np.linalg.inv(ob_in_finger)@to_homo(surface_pts).T).T[:,:3]
+    surface_pts = (np.linalg.inv(ob_in_finger)@to_homo(surface_pts).T).T[:,:3] # 接触点（相机系）
     return surface_pts, dist_to_finger_surface

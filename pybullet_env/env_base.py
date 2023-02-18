@@ -48,6 +48,7 @@ class EnvBase:
     except Exception as e:
       pass
 
+  # 清空零件
   def reset(self):
     body_ids = PU.get_bodies()
     for body_id in body_ids:

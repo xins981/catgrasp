@@ -23,3 +23,17 @@ core
 dataset/
 logs/
 .vscode/
+artifacts
+data
+dataset
+logs
+requirements.txt
+urdf
+docker/run_1.7.1-cuda11.0-cudnn8-devel.sh
+docker/run_container_generate_grasp.sh
+docker/run_container.sh
+docker/run_train.sh
+docker/run_container.sh
+unet.py
+test_demo.py
+query_loss.py

@@ -29,20 +29,29 @@ from pybullet_env.utils_pybullet import *
 
 
 
-def compute_grasp_score_worker(grasps,ob_dir,gripper,id,d,debug):
+def compute_grasp_score_worker(grasps, ob_dir, gripper, id, d, debug):
+  '''
+    grasps: 抓取位姿
+    ob_dir: 物体模型
+    gripper: 抓手模型
+    id: 处理器核心号
+    d: 位姿分数（返回值）
+    debug: 调试标志位
+  '''
   if debug:
     gui = True
   else:
     gui = False
   env = EnvGrasp(gripper,gui=gui)
   env.add_obj(ob_dir,concave=True)
-  p.changeDynamics(env.ob_id,-1,lateralFriction=0.7,spinningFriction=0.7,mass=0.1,collisionMargin=0.0001)
+  p.changeDynamics(env.ob_id, -1, lateralFriction=0.7, spinningFriction=0.7, mass=0.1, collisionMargin=0.0001)
   p.setGravity(0,0,-10)
   for i_grasp in range(len(grasps)):
     if i_grasp%max(1,(len(grasps)//100))==0:
       print("compute_grasp_score_worker {}/{}".format(i_grasp,len(grasps)))
     grasp_pose = grasps[i_grasp].get_grasp_pose_matrix()
-    grasps[i_grasp].perturbation_score = env.compute_perturbation_score(grasp_pose,trials=50)
+    # 抓取分，邻域内50个抓取的平均执行成功率
+    grasps[i_grasp].perturbation_score = env.compute_perturbation_score(grasp_pose,trials=50) 
   del env
   d[id] = grasps
 
@@ -94,7 +103,12 @@ def generate_grasp_one_object_complete_space(obj_dir):
   points_for_sample = np.asarray(pcd.points).copy()
   normals_for_sample = np.asarray(pcd.normals).copy()
 
-  grasps = ags.sample_grasps(background_pts=np.ones((1,3))*99999,points_for_sample=points_for_sample,normals_for_sample=normals_for_sample,num_grasps=np.inf,max_num_samples=np.inf,n_sphere_dir=30,approach_step=0.005,ee_in_grasp=np.eye(4),cam_in_world=np.eye(4),upper=np.ones((7))*999,lower=-np.ones((7))*999,open_gripper_collision_pts=np.ones((1,3))*999999,center_ob_between_gripper=True,filter_ik=False,filter_approach_dir_face_camera=False,adjust_collision_pose=False)
+  grasps = ags.sample_grasps(background_pts=np.ones((1,3))*99999, points_for_sample=points_for_sample,
+                            normals_for_sample=normals_for_sample, num_grasps=np.inf, max_num_samples=np.inf,
+                            n_sphere_dir=30, approach_step=0.005, ee_in_grasp=np.eye(4), cam_in_world=np.eye(4),
+                            upper=np.ones((7))*999, lower=-np.ones((7))*999,
+                            open_gripper_collision_pts=np.ones((1,3))*999999, center_ob_between_gripper=True,
+                            filter_ik=False, filter_approach_dir_face_camera=False, adjust_collision_pose=False)
 
   # grasps = [ParallelJawPtGrasp3D(grasp_pose=np.eye(4))]*20
 
@@ -109,7 +123,7 @@ def generate_grasp_one_object_complete_space(obj_dir):
   d = manager.dict()
   workers = []
   for i in range(N_CPU):
-    p = mp.Process(target=compute_grasp_score_worker, args=(grasps_split[i],obj_dir,gripper,i,d,debug))
+    p = mp.Process(target=compute_grasp_score_worker, args=(grasps_split[i], obj_dir, gripper, i, d, debug))
     workers.append(p)
     p.start()
 
@@ -145,6 +159,7 @@ if __name__ == '__main__':
   code_dir = os.path.dirname(os.path.realpath(__file__))
   for name in names:
     obj_dirs.append(f'{code_dir}/data/object_models/{name}')
+    break
   print("obj_dirs:\n",'\n'.join(obj_dirs))
 
   for obj_dir in obj_dirs:

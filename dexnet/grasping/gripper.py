@@ -108,6 +108,7 @@ class RobotGripper(object):
         f = open(os.path.join(os.path.join(gripper_dir, 'params.json')), 'r')
         params = json.load(f)
 
+        # grasp 到 gripper 的位姿变换在配置文件定义
         T_grasp_gripper = RigidTransform.load(os.path.join(gripper_dir, 'T_grasp_gripper.tf'))
         if T_grasp_gripper._from_frame=='gripper' and T_grasp_gripper._to_frame=='grasp':
             pass

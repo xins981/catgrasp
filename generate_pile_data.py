@@ -14,9 +14,9 @@ hostname = socket.gethostname()
 
 def generate_clutter_data_worker(class_name,ids,gui,cfg,cfg_dataset,split,gripper):
   def spawn_env():
-    env = Env(cfg,gripper,gui=gui)
+    env = Env(cfg, gripper, gui=gui)
     env.add_bin(pos=np.array([0.45,-0.5,0.1]))
-    p.removeBody(env.robot_id)
+    p.removeBody(env.robot_id) # 生成杂乱场景 RGBD 不需要机器人，只要相机和箱子
     env.env_body_ids = PU.get_bodies()
     hostname = socket.gethostname()
     code_dir = os.path.dirname(os.path.realpath(__file__))
@@ -31,19 +31,26 @@ def generate_clutter_data_worker(class_name,ids,gui,cfg,cfg_dataset,split,grippe
 
   cam_in_bin_ori = env.cam_in_bin.copy()
   for i,id in enumerate(ids):
+    # 随机一个相机位姿，保证能观察到完整的箱子
     while 1:
-      tf = random_uniform_magnitude(max_T=0.05,max_R=10)
+      tf = random_uniform_magnitude(max_T=0.05,max_R=10) # 随机一个相机位姿
       env.cam_in_bin = cam_in_bin_ori@tf
-      verts = (np.linalg.inv(env.cam_in_bin)@(to_homo(env.bin_verts).T)).T[:,:3]
-      projected = env.K@verts.T
-      us = projected[:,0]/projected[:,2].reshape(-1,1)
+      verts = (np.linalg.inv(env.cam_in_bin)@(to_homo(env.bin_verts).T)).T[:,:3] # bin 坐标（相机系）
+      projected = env.K@verts.T # bin 投影到相机
+      us = projected[:,0]/projected[:,2].reshape(-1,1) # 成像齐次坐标分量 n（像素数） x 1
       vs = projected[:,1]/projected[:,2].reshape(-1,1)
       if us.min()>=0 and us.max()<cfg['W'] and vs.min()>=0 and vs.max()<cfg['H']:
         break
-    name = np.random.choice(cfg_dataset[class_name]['train'])
+
+    # 随机一个模型，生成场景用
+    name = np.random.choice(cfg_dataset[class_name]['train']) 
     code_dir = os.path.dirname(os.path.realpath(__file__))
     obj_file = f'{code_dir}/data/object_models/{name}'
-    env.generate_one(obj_file=obj_file,data_id=id,scale_range=cfg_dataset['object_scales'],n_ob_range=cfg_dataset['num_pile_objects'])
+    
+    # 生成场景
+    env.generate_one(obj_file=obj_file, data_id=id, scale_range=cfg_dataset['object_scales']
+                    , n_ob_range=cfg_dataset['num_pile_objects'])
+    
     env.reset()
     if i%10==0:
       del env
@@ -53,10 +60,9 @@ def generate_clutter_data_worker(class_name,ids,gui,cfg,cfg_dataset,split,grippe
 def generate_clutter_data():
   for split in ['train','test']:
     if split=='train':
-      ids = np.arange(cfg_dataset['n_train'])
+      ids = np.arange(cfg_dataset['n_train']) # 训练场景数 20000
     else:
-      ids = np.arange(cfg_dataset['n_val'])
-
+      ids = np.arange(cfg_dataset['n_val']) # 测试场景数 1000
     gui = False
     generate_clutter_data_worker(class_name,ids,gui,cfg,cfg_dataset,split,gripper)
 

@@ -114,7 +114,8 @@ class ParallelJawPtGrasp3D(PointGrasp):
     """ Parallel Jaw point grasps in 3D space.
     """
 
-    def __init__(self, configuration=None, frame='object', grasp_pose=None, c1=None, c2=None, friction_score=None, canny_quality=None, perturbation_score=None, grasp_id=None):
+    def __init__(self, configuration=None, frame='object', grasp_pose=None, c1=None, c2=None, 
+    friction_score=None, canny_quality=None, perturbation_score=None, grasp_id=None):
         '''
         @c1,c2: contact points
         '''
@@ -144,8 +145,6 @@ class ParallelJawPtGrasp3D(PointGrasp):
         self.frame_ = frame
         self.grasp_id_ = grasp_id
 
-
-
     def set_contacts(self,c1=None,c2=None):
         self.c1 = copy.deepcopy(c1)
         if self.c1 is not None:
@@ -154,7 +153,6 @@ class ParallelJawPtGrasp3D(PointGrasp):
         self.c2 = copy.deepcopy(c2)
         if self.c2 is not None:
             self.c2.graspable_ = None
-
 
     def get_grasp_pose_matrix(self):
         if self.grasp_pose is not None:
@@ -168,8 +166,6 @@ class ParallelJawPtGrasp3D(PointGrasp):
     def print_scores(self):
         print("friction_score={}, canny_quality={}, perturbation_score={}".format(self.friction_score,self.canny_quality,self.perturbation_score))
 
-
-
     @staticmethod
     def from_grasp_pose_matrix(pose,max_grasp_width):
         '''Refer to rotated_full_axis()
@@ -180,7 +176,6 @@ class ParallelJawPtGrasp3D(PointGrasp):
         grasp = ParallelJawPtGrasp3D(configuration)
         grasp.grasp_pose = pose.copy()
         return grasp
-
 
     @property
     def center(self):

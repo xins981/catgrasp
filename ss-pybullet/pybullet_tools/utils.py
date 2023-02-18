@@ -1391,8 +1391,7 @@ def convex_combination(x, y, w=0.5):
 # Bodies
 
 def get_bodies():
-    return [p.getBodyUniqueId(i, physicsClientId=CLIENT)
-            for i in range(p.getNumBodies(physicsClientId=CLIENT))]
+    return [p.getBodyUniqueId(i, physicsClientId=CLIENT) for i in range(p.getNumBodies(physicsClientId=CLIENT))]
 
 BodyInfo = namedtuple('BodyInfo', ['base_name', 'body_name'])
 
@@ -3923,10 +3922,10 @@ def interpolate_poses(pose1, pose2, pos_step_size=0.01, ori_step_size=np.pi/16):
     yield pose2
 
 def interpolate_poses_matrix(pose1, pose2, pos_step_size=0.01, ori_step_size=np.pi/16):
-    pos1 = pose1[:3,3]
-    quat1 = quaternion_from_matrix(pose1)
-    pos2 = pose2[:3,3]
-    quat2 = quaternion_from_matrix(pose2)
+    pos1 = pose1[:3,3] # 位置 1
+    quat1 = quaternion_from_matrix(pose1) # 姿态 1
+    pos2 = pose2[:3,3] # 位置 2
+    quat2 = quaternion_from_matrix(pose2) # 姿态 2
     for (pos,quat) in interpolate_poses((pos1,quat1),(pos2,quat2),pos_step_size,ori_step_size):
         pose = quaternion_matrix(quat)
         pose[:3,3] = pos

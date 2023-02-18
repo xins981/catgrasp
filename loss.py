@@ -27,12 +27,15 @@ class NocsMinSymmetryCELoss(nn.Module):
     self.bin_resolution = 1/self.cfg['ce_loss_bins']
 
   def forward(self,pred,target):
-    B,N = target.shape[:2]
-    tmp_target = torch.matmul(self.symmetry_tfs.unsqueeze(0).expand(B,self.n_sym,4,4), to_homo_torch(target-0.5).permute(0,2,1).unsqueeze(1).expand(B,self.n_sym,4,-1))
-    tmp_target = tmp_target.permute(0,1,3,2)[...,:3] + 0.5
+    B,N = target.shape[:2] # target: B, N, 3
+    tmp_target = torch.matmul(self.symmetry_tfs.unsqueeze(0).expand(B,self.n_sym,4,4), 
+                              to_homo_torch(target-0.5).permute(0,2,1).unsqueeze(1).expand(B,self.n_sym,4,-1))
+    tmp_target = tmp_target.permute(0,1,3,2)[...,:3] + 0.5 # B, n_sym, N, 3
+    
+    # nocs 标签的网格坐标
     cloud_nocs_bin_class = torch.clamp(tmp_target/self.bin_resolution,0,self.cfg['ce_loss_bins']-1).long()
-
-    pred = pred.reshape(B,-1,3,self.cfg['ce_loss_bins']).unsqueeze(-1).expand(-1,-1,-1,-1,self.n_sym)
+    # (B, N, 3, ce_loss_bins, 1) --- expand ---> (B, N, 3, ce_loss_bins, n_sym)
+    pred = pred.reshape(B,-1,3,self.cfg['ce_loss_bins']).unsqueeze(-1).expand(-1,-1,-1,-1,self.n_sym) 
 
     loss = []
     for i in range(3):
@@ -40,6 +43,6 @@ class NocsMinSymmetryCELoss(nn.Module):
     loss = torch.stack(loss,dim=-1).sum(dim=-1)
     loss = loss.mean(dim=-1)
     ids = loss.argmin(dim=1)
-    loss = torch.gather(loss,dim=1,index=ids.unsqueeze(1))
+    loss = torch.gather(loss,dim=1,index=ids.unsqueeze(1)) 
     loss = loss.mean()
     return loss

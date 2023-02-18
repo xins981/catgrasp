@@ -153,9 +153,21 @@ vectorMatrix4f augmentGraspPoses(const Eigen::Matrix3f &R0, const Eigen::Vector3
 }
 
 
-vectorMatrix4f filterGraspPose(const vectorMatrix4f grasp_poses, const vectorMatrix4f symmetry_tfs, const Eigen::Matrix4f nocs_pose, const Eigen::Matrix4f canonical_to_nocs_transform, const Eigen::Matrix4f cam_in_world, const Eigen::Matrix4f ee_in_grasp, const Eigen::Matrix4f gripper_in_grasp, bool filter_approach_dir_face_camera, bool filter_ik, bool adjust_collision_pose, const std::vector<double> upper, const std::vector<double> lower, const Eigen::MatrixXf gripper_vertices, const Eigen::MatrixXi gripper_faces, const Eigen::MatrixXf gripper_enclosed_vertices, const Eigen::MatrixXi gripper_enclosed_faces, const Eigen::MatrixXf gripper_collision_pts, const Eigen::MatrixXf gripper_enclosed_collision_pts, float octo_resolution, bool verbose)
+vectorMatrix4f filterGraspPose(const vectorMatrix4f grasp_poses, const vectorMatrix4f symmetry_tfs, 
+const Eigen::Matrix4f nocs_pose, const Eigen::Matrix4f canonical_to_nocs_transform, 
+const Eigen::Matrix4f cam_in_world, const Eigen::Matrix4f ee_in_grasp, const Eigen::Matrix4f gripper_in_grasp, 
+bool filter_approach_dir_face_camera, bool filter_ik, bool adjust_collision_pose, const std::vector<double> upper, 
+const std::vector<double> lower, const Eigen::MatrixXf gripper_vertices, const Eigen::MatrixXi gripper_faces, 
+const Eigen::MatrixXf gripper_enclosed_vertices, const Eigen::MatrixXi gripper_enclosed_faces, 
+const Eigen::MatrixXf gripper_collision_pts, const Eigen::MatrixXf gripper_enclosed_collision_pts, 
+float octo_resolution, bool verbose)
 {
   vectorMatrix4f out;
+  // nocs_pose 是网络预测出来的 nunocs 位姿（相机系）
+  // canonical_to_nocs_transform 是单位阵，描述的是 template 到未知实例标准表示的变换。
+  // 预测网络的输出预期就是在 nunocs 系中，template 也是在这个系中。所以模板系到预测的 nunocs 系的变换是单位阵。
+  // 为什么要做这一步呢？因为离线生成的抓取都默认在模板上。
+  // 其实这背后有一个大前提：我们认为类内所有模型（不管见没见过）的 nunocs 表示基于一个普适的（就是同一个）nunocs 系。
   Eigen::Matrix4f canonical_to_cam = nocs_pose*canonical_to_nocs_transform;
   std::cout<<"canonical_to_cam:\n"<<canonical_to_cam<<"\n\n";
 
@@ -182,6 +194,7 @@ omp_set_num_threads(int(std::thread::hardware_concurrency()));
   cm_bg.registerPointCloud(gripper_enclosed_collision_pts,octo_resolution);
 
   #pragma omp for schedule(dynamic)
+  // grasp_poses 是离线生成的 nunocs 抓取位姿
   for (int i=0;i<grasp_poses.size();i++)
   {
     const auto &grasp_pose = grasp_poses[i];
@@ -189,6 +202,7 @@ omp_set_num_threads(int(std::thread::hardware_concurrency()));
     {
       const auto &tf = symmetry_tfs[j];
       Eigen::Matrix4f tmp_grasp_pose = tf*grasp_pose;
+      // 用预测的 9D 变换，把离线 cononical 抓取变换到相机系
       Eigen::Matrix4f grasp_in_cam = canonical_to_cam*tmp_grasp_pose;
 
       for (int col=0;col<3;col++)

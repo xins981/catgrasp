@@ -150,9 +150,10 @@ def create_duplicate_object(n_ob,obj_file,scale,ob_in_worlds,mass,has_collision=
     if i==0:
       ob_id,urdf_dir = create_object(obj_file,scale=scale,ob_in_world=ob_in_world,mass=mass,has_collision=has_collision,concave=concave,useFixedBase=useFixedBase)
     else:
-      ob_id = p.loadURDF(urdf_dir, basePosition=ob_in_world[:3,3], baseOrientation=q_xyzw, useFixedBase=useFixedBase,flags=p.URDF_ENABLE_CACHED_GRAPHICS_SHAPES|p.URDF_USE_MATERIAL_COLORS_FROM_MTL|p.URDF_MAINTAIN_LINK_ORDER)
-    p.changeDynamics(ob_id,-1,collisionMargin=collision_margin)
-    set_body_pose_in_world(ob_id,ob_in_world)
+      ob_id = p.loadURDF(urdf_dir, basePosition=ob_in_world[:3,3], baseOrientation=q_xyzw, useFixedBase=useFixedBase, 
+                        flags=p.URDF_ENABLE_CACHED_GRAPHICS_SHAPES|p.URDF_USE_MATERIAL_COLORS_FROM_MTL|p.URDF_MAINTAIN_LINK_ORDER)
+    p.changeDynamics(ob_id, -1, collisionMargin=collision_margin)
+    set_body_pose_in_world(ob_id, ob_in_world)
     ob_ids.append(ob_id)
   return ob_ids
 

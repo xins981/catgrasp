@@ -108,7 +108,6 @@ class GraspSampler:
         else:
             self.grasp_dist_thresh_ = 0
 
-
     def show_points(self, point, color='lb', scale_factor=.0005):
         if color == 'b':
             color_f = (0, 0, 1)
@@ -153,7 +152,10 @@ class GraspSampler:
 
 
 class PointConeGraspSampler(GraspSampler):
-    def sample_grasps(self, background_pts,points_for_sample, normals_for_sample, max_num_samples=200, n_sphere_dir=100, approach_step=0.003, ee_in_grasp=None, cam_in_world=None, upper=None,lower=None,open_gripper_collision_pts=None, center_ob_between_gripper=False,filter_ik=True,adjust_collision_pose=True,**kwargs):
+    def sample_grasps(  self, background_pts,points_for_sample, normals_for_sample, max_num_samples=200, 
+                        n_sphere_dir=100, approach_step=0.003, ee_in_grasp=None, cam_in_world=None, upper=None,
+                        lower=None,open_gripper_collision_pts=None, center_ob_between_gripper=False,filter_ik=True,
+                        adjust_collision_pose=True,**kwargs):
         resolution = compute_cloud_resolution(points_for_sample)
         print(f"estimated resolution={resolution}")
         self.params = {
@@ -187,7 +189,9 @@ class PointConeGraspSampler(GraspSampler):
 
         grasps = []
         for id in sample_ids:
-            tmp_grasps = self.sample_one_surface_point(points_for_sample[id],normals_for_sample[id],points_for_sample,normals_for_sample,background_pts,sphere_pts,seed)
+            tmp_grasps = self.sample_one_surface_point( points_for_sample[id],normals_for_sample[id],
+                                                        points_for_sample,normals_for_sample,background_pts,
+                                                        sphere_pts,seed)
             grasps += tmp_grasps
 
 
@@ -221,11 +225,21 @@ class PointConeGraspSampler(GraspSampler):
 
         return grasps
 
-
-    def sample_one_surface_point(self,selected_surface,selected_normal,points_for_sample,normals_for_sample,background_pts,sphere_pts,seed=None):
+    def sample_one_surface_point(self,selected_surface,selected_normal,points_for_sample,normals_for_sample,
+                                background_pts, sphere_pts,seed=None):
+        '''
+        parameters
+        ----------
+        selected_surface: 物体表面采样得到的一点
+        selected_normal: 该点的法向
+        points_for_sample: 点云
+        normals_for_sample: 点云法向
+        sphere_pts: 接触向量的起点
+        '''
         np.random.seed(seed)
         r_ball = self.params['r_ball']
 
+        # begin: 计算 M 矩阵，参考 GPD
         M = np.zeros((3, 3))
         point_cloud_kdtree = cKDTree(points_for_sample)
         kd_indices = point_cloud_kdtree.query_ball_point(selected_surface.reshape(1,3),r=r_ball)
@@ -246,18 +260,18 @@ class PointConeGraspSampler(GraspSampler):
             return self.sample_one_surface_point(selected_surface,selected_normal,points_for_sample,normals_for_sample,background_pts,sphere_pts,seed)
 
         approach_normal = -selected_normal.reshape(3)
-        approach_normal /= np.linalg.norm(approach_normal)
+        approach_normal /= np.linalg.norm(approach_normal) # 单位化接触点的法向
         eigval, eigvec = np.linalg.eig(M)
         def proj(u,v):
             u = u.reshape(-1)
             v = v.reshape(-1)
             return np.dot(u,v)/np.dot(u,u) * u
-        minor_pc = eigvec[:, np.argmin(eigval)].reshape(3)
+        minor_pc = eigvec[:, np.argmin(eigval)].reshape(3) # 小主曲率
         minor_pc = minor_pc-proj(approach_normal,minor_pc)
         minor_pc /= np.linalg.norm(minor_pc)
-        major_pc = np.cross(minor_pc, approach_normal)
+        major_pc = np.cross(minor_pc, approach_normal) # 大主曲率
         major_pc = major_pc / np.linalg.norm(major_pc)
-
+        # end: 计算 M 矩阵，参考 GPD
         if self.params['debug_vis']:
             self.show_grasp_norm_oneside(selected_surface, grasp_normal=approach_normal, grasp_axis=major_pc, minor_pc=minor_pc, scale_factor=0.001)
             self.show_points(selected_surface, color='g', scale_factor=0.005)
@@ -300,21 +314,26 @@ class PointConeGraspSampler(GraspSampler):
 
 
 class NocsTransferGraspSampler(GraspSampler):
-    def __init__(self, gripper, config, canonical, class_name, score_larger_than=0, max_n_grasp=None, center_ob_between_gripper=False):
+    def __init__(self, gripper, config, canonical, class_name, score_larger_than=0, max_n_grasp=None, 
+                    center_ob_between_gripper=False):
         super().__init__(gripper,config)
         self.canonical = copy.deepcopy(canonical)
         n_before = len(self.canonical['canonical_grasps'])
         self.class_name = class_name
         new_grasps = []
-        if score_larger_than>0:
+        # 根据质量分过滤离线抓取
+        if score_larger_than > 0:
             for grasp in self.canonical['canonical_grasps']:
                 if grasp.perturbation_score>=score_larger_than:
                     new_grasps.append(grasp)
             self.canonical['canonical_grasps'] = new_grasps
+        
+        # 挑出前 max_n_grasp 个抓取
         if max_n_grasp is not None:
             self.canonical['canonical_grasps'].sort(key=lambda x:-x.perturbation_score)
             self.canonical['canonical_grasps'] = self.canonical['canonical_grasps'][:max_n_grasp]
 
+        # 确保物体在抓取中心
         if center_ob_between_gripper:
             print('center_ob_between_gripper...')
             for i in range(len(self.canonical['canonical_grasps'])):
@@ -327,7 +346,9 @@ class NocsTransferGraspSampler(GraspSampler):
         print(f"NocsTransferGraspSampler score_larger_than={score_larger_than}, center_ob_between_gripper={center_ob_between_gripper}, max_n_grasp={max_n_grasp}, #canonical_grasp={len(self.canonical['canonical_grasps'])}, before has {n_before}")
 
 
-    def sample_grasps(self, background_pts,open_gripper_collision_pts, normals_for_sample, nocs_pts, nocs_pose, cam_in_world,ee_in_grasp,upper,lower,filter_approach_dir_face_camera=False,ik_func=None,symmetry_tfs=[np.eye(4)],filter_ik=True,**kwargs):
+    def sample_grasps(self, background_pts,open_gripper_collision_pts, normals_for_sample, 
+                    nocs_pts, nocs_pose, cam_in_world,ee_in_grasp,upper,lower,filter_approach_dir_face_camera=False,
+                    ik_func=None,symmetry_tfs=[np.eye(4)],filter_ik=True,**kwargs):
         canonical_to_nocs = np.eye(4)
 
         resolution = 0.0005
@@ -342,7 +363,12 @@ class NocsTransferGraspSampler(GraspSampler):
         print('grasp_poses before filter',len(grasp_poses)*len(symmetry_tfs))
         verbose = False
         adjust_collision_pose = True
-        grasp_poses = my_cpp.filterGraspPose(grasp_poses,list(symmetry_tfs),nocs_pose,canonical_to_nocs,cam_in_world,ee_in_grasp,gripper_in_grasp,filter_approach_dir_face_camera,filter_ik,adjust_collision_pose,upper,lower,self.gripper.trimesh.vertices,self.gripper.trimesh.faces,self.gripper.trimesh_enclosed.vertices,self.gripper.trimesh_enclosed.faces,open_gripper_collision_pts,background_pts,resolution,verbose)
+        grasp_poses = my_cpp.filterGraspPose(grasp_poses,list(symmetry_tfs),nocs_pose,canonical_to_nocs,
+                                            cam_in_world,ee_in_grasp,gripper_in_grasp,filter_approach_dir_face_camera,
+                                            filter_ik,adjust_collision_pose,upper,lower,self.gripper.trimesh.vertices,
+                                            self.gripper.trimesh.faces, self.gripper.trimesh_enclosed.vertices,
+                                            self.gripper.trimesh_enclosed.faces,open_gripper_collision_pts,
+                                            background_pts,resolution,verbose)
 
         print('#grasp_poses with symmetry and after filter',len(grasp_poses))
 

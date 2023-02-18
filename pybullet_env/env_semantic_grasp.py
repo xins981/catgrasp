@@ -74,19 +74,19 @@ class EnvSemanticGraspNoArm(EnvBase):
 
 
   def try_grasp(self,grasp_in_ob,debug=0):
-    p.setGravity(0,0,0)
+    p.setGravity(0,0,0) # 重力置零
     PU.remove_fixed_constraint(self.ob_id,self.env_grasp.gripper_id,-1)
     p.restoreState(stateId=self.state_id)
     tmp = np.eye(4)
     tmp[:3,3] = [999,0,0]
-    set_body_pose_in_world(self.place_id,tmp)
+    set_body_pose_in_world(self.place_id,tmp) # 设定接收器位置 （999，0，0）
 
-    set_body_pose_in_world(self.ob_id,self.init_ob_in_world)
+    set_body_pose_in_world(self.ob_id,self.init_ob_in_world) # 
 
-    self.env_grasp.open_gripper()
+    self.env_grasp.open_gripper() # 打开手指
 
     ob_in_world = get_ob_pose_in_world(self.ob_id)
-    grasp_in_world = ob_in_world@grasp_in_ob
+    grasp_in_world = ob_in_world@grasp_in_ob # 抓取位姿（世界系）
     self.env_grasp.set_gripper_pose_from_grasp_pose(grasp_in_world)
 
     if debug>=1:
@@ -95,19 +95,22 @@ class EnvSemanticGraspNoArm(EnvBase):
     sleep = 0
     if debug>=1:
       sleep = 0.1
-    self.env_grasp.close_gripper(sleep=sleep,step=30)
+      
+    self.env_grasp.close_gripper(sleep=sleep,step=30) # 闭合手指
+    
     if debug>=1:
       print('after close')
       time.sleep(1)
 
     tmp_id = p.saveState()
-    p.setGravity(0,0,-10)
+    p.setGravity(0,0,-10) # 设置重力
     for _ in range(100):
       p.stepSimulation()
       if debug>=1:
         time.sleep(0.1)
 
-    ob_in_world = get_ob_pose_in_world(self.ob_id)
+    ob_in_world = get_ob_pose_in_world(self.ob_id) 
+    # 根据物体离地面的距离和物体和手指之间的距离判断稳定抓取（世界系）
     if ob_in_world[2,3]<-0.1 or np.linalg.norm(ob_in_world[:3,3]-grasp_in_world[:3,3])>0.2:
       p.removeState(tmp_id)
       if debug>=1:
@@ -116,26 +119,36 @@ class EnvSemanticGraspNoArm(EnvBase):
       return 0
 
     p.setGravity(0,0,0)
-    p.restoreState(tmp_id)
+    p.restoreState(tmp_id) # 回退到手指闭合状态（夹持物体）
     p.removeState(tmp_id)
 
-    self.contact_pts,self.contact_dists,n_side = self.env_grasp.get_grasp_contact_area(self.ob_id,self.ob_pts,get_pt_on_ob=True,surface_tol=0.002)
+    self.contact_pts,self.contact_dists,n_side = self.env_grasp.get_grasp_contact_area(self.ob_id,self.ob_pts,
+                                                  get_pt_on_ob=True,surface_tol=0.002)
     if self.contact_pts is None or n_side<2:
       return 0
 
     set_body_pose_in_world(self.place_id,self.place_pose)
+
+    '''
+      这一段我理解的是把物体附着在手指上，前面已经先做了稳定测试，物体不会掉落，
+      这里就把物体当做机器人的一部分，做成手指的一个连杆了。
+    '''
     attachment = PU.create_attachment(self.env_grasp.gripper_id,0,self.ob_id)
     ob_in_gripper = get_pose_A_in_B(self.ob_id,-1,self.env_grasp.gripper_id,-1)
     gripper_in_world = self.init_ob_in_world@np.linalg.inv(ob_in_gripper)
     set_body_pose_in_world(self.env_grasp.gripper_id,gripper_in_world)
     attachment.assign()
+
     if debug>=1:
       print('before go down')
       time.sleep(1)
+
+    ''' 计算执行放置动作的姿态（世界系） '''
     place_in_world = get_ob_pose_in_world(self.place_id)
     target_ob_in_world = place_in_world@place_pose_dict[self.class_name][1]
-    target_gripper_in_world = target_ob_in_world@np.linalg.inv(ob_in_gripper)
+    target_gripper_in_world = target_ob_in_world@np.linalg.inv(ob_in_gripper) 
 
+    ''' 计算手从初始位置到目标放置位置的运动状态，每个状态下做碰撞检测 '''
     for gripper_pose in PU.interpolate_poses_matrix(gripper_in_world,target_gripper_in_world):
       set_body_pose_in_world(self.env_grasp.gripper_id,gripper_pose)
       attachment.assign()
@@ -151,6 +164,7 @@ class EnvSemanticGraspNoArm(EnvBase):
       print('before remove hand')
       time.sleep(1)
 
+    ''' 移开手指 '''
     tmp = np.eye(4)
     tmp[0,3] = 100
     set_body_pose_in_world(self.env_grasp.gripper_id,tmp)
@@ -159,6 +173,7 @@ class EnvSemanticGraspNoArm(EnvBase):
       print('place action done, remove gripper, let it drop')
       time.sleep(1)
 
+    ''' 物体自由下落 '''
     p.setGravity(0,0,-10)
     for _ in range(50):
       p.stepSimulation()
@@ -181,6 +196,11 @@ class EnvSemanticGraspNoArm(EnvBase):
 
 
 def generate_affordance_worker(grasps,symmetry_tfs,ob_pts,ob_dir,place_dir,gripper,gui,id,d,debug=False):
+  '''
+    grasps: 稳定抓取
+    ob_pts: 模型点阵 ndarray
+    d: 输出的数据结构
+  '''
   results = []
   env_grasp = EnvGrasp(gripper,gui=gui)
   env = EnvSemanticGraspNoArm(env_grasp,ob_dir,ob_pts=ob_pts,place_dir=place_dir,gui=gui)
@@ -194,7 +214,7 @@ def generate_affordance_worker(grasps,symmetry_tfs,ob_pts,ob_dir,place_dir,gripp
     if i_grasp%max(1,(len(grasps)//10))==0:
       print('verify task oriented grasps {}/{}'.format(i_grasp,len(grasps)))
 
-    grasp_in_ob = grasp.get_grasp_pose_matrix()
+    grasp_in_ob = grasp.get_grasp_pose_matrix() # 抓取位姿（物体系）
 
     ##########!NOTE For male objects, grasp from bottom definitely not work, dont waste time on it
     if class_name in ['hnm','screw']:
@@ -224,13 +244,17 @@ def generate_affordance_worker(grasps,symmetry_tfs,ob_pts,ob_dir,place_dir,gripp
 def generate_affordance(ob_pts,ob_normals,ob_dir,place_dir):
   '''Generate semantic grasp for one instance
   '''
+
+  # 读取上阶段仿真生成的稳定抓取
   with gzip.open(f"{ob_dir.replace('.obj','_complete_grasp.pkl')}",'rb') as ff:
     grasps = pickle.load(ff)
 
   grasps = np.array(grasps)
   print(f"#grasps={len(grasps)}")
+  # 随意挑选稳定抓取，最多十万个
   grasps = np.random.choice(grasps,size=min(100000,len(grasps)),replace=False)
 
+  # 物体是对称的，稳定抓取有一个镜像，底下是获取镜像的变换矩阵
   symmetry_tfs = get_symmetry_tfs(class_name)
 
   N_CPU = multiprocessing.cpu_count()
@@ -241,7 +265,8 @@ def generate_affordance(ob_pts,ob_normals,ob_dir,place_dir):
   d = manager.dict()
   workers = []
   for i in range(N_CPU):
-    p = mp.Process(target=generate_affordance_worker, args=(grasps_splits[i],symmetry_tfs,ob_pts,ob_dir,place_dir,gripper,gui,i,d,debug))
+    p = mp.Process( target=generate_affordance_worker, 
+                    args=(grasps_splits[i],symmetry_tfs,ob_pts,ob_dir, place_dir,gripper,gui,i,d,debug))
     workers.append(p)
     p.start()
 
@@ -327,20 +352,21 @@ if __name__=="__main__":
     gui = False
 
   ob_dirs = []
-  names = cfg['dataset'][class_name]['train']
+  names = cfg['dataset'][class_name]['test']
   code_dir = os.path.dirname(os.path.realpath(__file__))
   for name in names:
-    ob_dirs.append(f'{code_dir}/../data/object_models/{name}')
+    ob_dirs.append(f'{code_dir}/../data/object_models/{name}') # 模型 mesh
+    break
 
-  for ob_dir in ob_dirs:
-    place_dir = ob_dir.replace('.obj','_place.obj')
+  for ob_dir in ob_dirs: # 遍历内别内模型
+    place_dir = ob_dir.replace('.obj','_place.obj') # 类别接收器（任务设定）
 
     mesh = trimesh.load(ob_dir)
     ob_pts, face_ids = trimesh.sample.sample_surface_even(mesh,count=20000,radius=0.0005)
     ob_normals = mesh.face_normals[face_ids]
-    pcd = toOpen3dCloud(ob_pts,normals=ob_normals)
-    pcd = pcd.voxel_down_sample(voxel_size=0.001)
-    ob_pts = np.asarray(pcd.points).copy()
+    pcd = toOpen3dCloud(ob_pts,normals=ob_normals) # mesh 转点云
+    pcd = pcd.voxel_down_sample(voxel_size=0.001) # 点云下采样
+    ob_pts = np.asarray(pcd.points).copy() # 点云转 ndarray
     ob_normals = np.asarray(pcd.normals).copy()
 
     generate_affordance(ob_pts,ob_normals,ob_dir,place_dir)

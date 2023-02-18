@@ -32,7 +32,9 @@ def estimateAffine3D(source,target,PassThreshold):
     return transform, inliers
 
 
-def estimate9DTransform_worker(cur_src,cur_dst,source,target,PassThreshold,use_kdtree_for_eval=False,kdtree_eval_resolution=None,max_scale=np.array([99,99,99]),min_scale=np.array([0,0,0]),max_dimensions=None):
+def estimate9DTransform_worker(cur_src,cur_dst,source,target,PassThreshold,use_kdtree_for_eval=False,
+                            kdtree_eval_resolution=None,max_scale=np.array([99,99,99]),min_scale=np.array([0,0,0]),
+                            max_dimensions=None):
     bad_return = None,None,None
     transform,inliers = estimateAffine3D(source=cur_src,target=cur_dst,PassThreshold=PassThreshold)
     new_transform = transform.copy()
@@ -80,7 +82,9 @@ def estimate9DTransform_worker(cur_src,cur_dst,source,target,PassThreshold,use_k
 
     return ratio,transform,inliers
 
-def estimate9DTransform(source,target,PassThreshold,max_iter=1000,use_kdtree_for_eval=False,kdtree_eval_resolution=None,max_scale=np.array([99,99,99]),min_scale=np.array([0,0,0]),max_dimensions=None):
+def estimate9DTransform(source,target,PassThreshold,max_iter=1000,use_kdtree_for_eval=False,
+                        kdtree_eval_resolution=None,max_scale=np.array([99,99,99]),min_scale=np.array([0,0,0]),
+                        max_dimensions=None):
     best_transform = None
     best_ratio = 0
     inliers = None
