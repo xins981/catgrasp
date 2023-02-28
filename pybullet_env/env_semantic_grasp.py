@@ -254,7 +254,7 @@ def generate_affordance(ob_pts,ob_normals,ob_dir,place_dir):
   # 随意挑选稳定抓取，最多十万个
   grasps = np.random.choice(grasps,size=min(100000,len(grasps)),replace=False)
 
-  # 物体是对称的，稳定抓取有一个镜像，底下是获取镜像的变换矩阵
+  # 物体是对称的，稳定抓取也具有对称的性质，底下是获取镜像的变换矩阵
   symmetry_tfs = get_symmetry_tfs(class_name)
 
   N_CPU = multiprocessing.cpu_count()
@@ -352,13 +352,14 @@ if __name__=="__main__":
     gui = False
 
   ob_dirs = []
+  # names = cfg['dataset'][class_name]['train']
   names = cfg['dataset'][class_name]['test']
   code_dir = os.path.dirname(os.path.realpath(__file__))
   for name in names:
     ob_dirs.append(f'{code_dir}/../data/object_models/{name}') # 模型 mesh
     break
 
-  for ob_dir in ob_dirs: # 遍历内别内模型
+  for ob_dir in ob_dirs: # 遍历零件
     place_dir = ob_dir.replace('.obj','_place.obj') # 类别接收器（任务设定）
 
     mesh = trimesh.load(ob_dir)

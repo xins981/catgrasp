@@ -35,14 +35,14 @@ except:
   pass
 
 
-def compute_test_nocs_to_obj():
+def compute_test_nocs2objs():
   obj_files = []
   names = cfg['dataset'][class_name]['test']
   code_dir = os.path.dirname(os.path.realpath(__file__))
 
   for name in names:
     obj_files.append(f'{code_dir}/data/object_models/{name}')
-  out_file = f'{code_dir}/data/object_models/{class_name}_test_canonical2general.pkl'
+  out_file = f'{code_dir}/data/object_models/{class_name}_test_nocs2objs.pkl'
 
   clouds = {}
   for file in obj_files:
@@ -52,91 +52,43 @@ def compute_test_nocs_to_obj():
     pcd.voxel_down_sample(voxel_size=0.001)
     clouds[file] = np.asarray(pcd.points).copy()
 
-  nocs_to_obj = {}
+  nocs2objs = {}
   for obj_file in obj_files:
     max_xyz = clouds[obj_file].max(axis=0)
     min_xyz = clouds[obj_file].min(axis=0)
-    obj_to_nocs = np.eye(4)
-    nunocs_scale = 1.
-    center = (max_xyz+min_xyz)/2
-    obj_to_nocs[:3,3] = -center
-    obj_to_nocs[:3,:3] = np.diag(np.ones((3))/(max_xyz-min_xyz)) / nunocs_scale
-    pcd = toOpen3dCloud(clouds[obj_file])
-    pcd.transform(obj_to_nocs)
-    max_xyz = np.asarray(pcd.points).max(axis=0)
-    min_xyz = np.asarray(pcd.points).min(axis=0)
-    # new_tf = np.eye(4)
-    # new_tf[:3,3] = -(max_xyz+min_xyz)/2
-    # obj_to_nocs = new_tf @ obj_to_nocs
-    nocs_to_obj[obj_file] = np.eye(4)
-    nocs_to_obj[obj_file][0:3,3] = obj_to_nocs[0:3,3]
-    nocs_to_obj[obj_file][0:3,:3] = np.linalg.inv(obj_to_nocs[:3,:3])
-    
-
-  with gzip.open(out_file,'wb') as ff:
-    out = {
-      'nocs_to_obj': nocs_to_obj
-    }
-    pickle.dump(out,ff)
-
-def compute_affordance():
-  names = cfg['dataset'][class_name]['test']
-  code_dir = os.path.dirname(os.path.realpath(__file__))
-
-  for name in names:
-    obj_file = f'{code_dir}/data/object_models/{name}'
-    out_file = obj_file.replace('.obj', '_canonical.pkl')
-    
-    mesh = trimesh.load(obj_file)
-    pts, face_ids = trimesh.sample.sample_surface_even(mesh, 20000)
-    normal = mesh.face_normals[face_ids]
-    pcd = toOpen3dCloud(pts)
-    pcd.voxel_down_sample(voxel_size=0.001)
-    cloud = np.asarray(pcd.points).copy() # 物体点云（物体系）
-    max_xyz = cloud.max(axis=0)
-    min_xyz = cloud.min(axis=0)
     obj2nocs = np.eye(4)
-    nunocs_scale = 1.
     center = (max_xyz+min_xyz)/2
-    obj2nocs[:3,3] = -center 
-    obj2nocs[:3,:3] = np.diag(np.ones((3))/(max_xyz-min_xyz)) / nunocs_scale 
-    pcd = toOpen3dCloud(cloud)
+    obj2nocs[:3,3] = -center
+    obj2nocs[:3,:3] = np.diag(np.ones((3))/(max_xyz-min_xyz))
+    pcd = toOpen3dCloud(clouds[obj_file])
     pcd.transform(obj2nocs)
     max_xyz = np.asarray(pcd.points).max(axis=0)
     min_xyz = np.asarray(pcd.points).min(axis=0)
     new_tf = np.eye(4)
     new_tf[:3,3] = -(max_xyz+min_xyz)/2
-    
     obj2nocs = new_tf @ obj2nocs
-    pcd = toOpen3dCloud(cloud,normals=normal)
-    pcd.transform(obj2nocs)
-    cloud = np.asarray(pcd.points).copy() # template（nunocs 空间）
-    normal = np.asarray(pcd.normals).copy()
-    
-    affordance_file = obj_file.replace('.obj','_affordance.ply')
-    affordance = o3d.io.read_point_cloud(affordance_file)
-    affordance = np.asarray(affordance.colors)[:,0]
-    
-    with gzip.open(out_file,'wb') as ff:
-      out = {
-        'canonical_cloud': cloud,
-        'canonical_normals': normal,
-        'canonical_affordance': affordance
-      }
-      pickle.dump(out,ff)
-    break
+    nocs2obj = np.linalg.inv(obj2nocs)
+    nocs2objs[obj_file] = nocs2obj
+
+  with gzip.open(out_file,'wb') as ff:
+    pickle.dump(nocs2objs,ff)
 
 def compute_canonical_model():
   obj_files = []
-  names = cfg['dataset'][class_name]['train']
+  # names = cfg['dataset'][class_name]['train']
+  names = cfg['dataset'][class_name]['test']
   code_dir = os.path.dirname(os.path.realpath(__file__))
 
   for name in names:
     obj_files.append(f'{code_dir}/data/object_models/{name}')
-  out_file = f'{code_dir}/data/object_models/{class_name}_canonical.pkl'
+    break
+
+  out_file = f'{code_dir}/data/object_models/{class_name}_test_canonical.pkl'
 
   print("obj_files:\n", '\n'.join(obj_files))
 
+
+  #region 读取实例点云
   clouds = {}
   file2normals = {}
   for file in obj_files:
@@ -147,8 +99,9 @@ def compute_canonical_model():
     pcd = toOpen3dCloud(pts)
     pcd.voxel_down_sample(voxel_size=0.001)
     clouds[file] = np.asarray(pcd.points).copy() # 物体点云（物体系）
-    
+  #endregion 
 
+  #region 计算各实例到标准空间的变换
   transforms_to_nocs = {}
   for obj_file in obj_files:
     max_xyz = clouds[obj_file].max(axis=0)
@@ -166,8 +119,9 @@ def compute_canonical_model():
     new_tf = np.eye(4)
     new_tf[:3,3] = -(max_xyz+min_xyz)/2
     transforms_to_nocs[obj_file] = new_tf@transforms_to_nocs[obj_file]
+  #endregion
 
-  # 计算模型之间的距离（nunocs空间），选出模板
+  #region 计算模型之间的距离，生成模板（nocs空间）
   dist_to_other_models = {}
   for i,obj_file in enumerate(obj_files):
     dists = []
@@ -180,11 +134,12 @@ def compute_canonical_model():
       other_cloud = (transforms_to_nocs[other_file]@to_homo(other_cloud).T).T[:,:3]
       cd = chamfer_distance_between_clouds_mutual(cloud,other_cloud)
       dists.append(cd)
-    avg_dist = np.concatenate(dists,axis=0).reshape(-1).mean()
-    dist_to_other_models[obj_file] = avg_dist
+    # avg_dist = np.concatenate(dists,axis=0).reshape(-1).mean()
+    # dist_to_other_models[obj_file] = avg_dist
 
   best_dist_id = np.array(dist_to_other_models.values()).argmin()
-  best_file = list(dist_to_other_models.keys())[best_dist_id]
+  # best_file = list(dist_to_other_models.keys())[best_dist_id]
+  best_file = obj_files[0]
   print('best_file',best_file)
   canonical_cloud = copy.deepcopy(clouds[best_file]) # canonical 就是模板 template（物体系）
   canonical_normals = copy.deepcopy(file2normals[best_file])
@@ -192,8 +147,9 @@ def compute_canonical_model():
   pcd.transform(transforms_to_nocs[best_file])
   canonical_cloud = np.asarray(pcd.points).copy() # template（nunocs 空间）
   canonical_normals = np.asarray(pcd.normals).copy()
+  #endregion
 
-  ############ Gather grasp codebook
+  #region Gather grasp codebook
   gripper = RobotGripper.load(gripper_dir=cfg_grasp['gripper_dir'][class_name])
   canonical_grasps = []
   grasp_score_thres = 0.8
@@ -222,8 +178,9 @@ def compute_canonical_model():
       canonical_grasp.grasp_pose = normalizeRotation(canonical_grasp.grasp_pose) # 单位化旋转矩阵列向量,去缩放
       canonical_grasps.append(canonical_grasp)
   canonical_grasps = np.array(canonical_grasps)
-
-  ############ Gather affordance codebook
+  #endregion 
+  
+  #region Gather affordance codebook
   print("Gathering affordance")
   canonical_affordance = np.zeros((len(canonical_cloud)))
   n_afford = 0
@@ -247,6 +204,7 @@ def compute_canonical_model():
   colors = array_to_heatmap_rgb(canonical_affordance.reshape(-1))
   pcd = toOpen3dCloud(canonical_cloud,colors)
   o3d.io.write_point_cloud(out_file.replace('.pkl','_affordance_vis.ply'),pcd,write_ascii=True)
+  #endregion
 
   print(f"Write to {out_file}")
   with gzip.open(out_file,'wb') as ff:
@@ -275,6 +233,5 @@ if __name__=="__main__":
   class_name = args.class_name
   gripper = RobotGripper.load(gripper_dir=cfg_grasp['gripper_dir'][class_name])
 
-  # compute_canonical_model()
-  # compute_test_nocs_to_obj()
-  compute_affordance()
+  compute_canonical_model()
+  # compute_test_nocs2objs()

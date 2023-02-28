@@ -154,7 +154,8 @@ if __name__ == '__main__':
   cfg_grasp = YamlConfig("{}/config_grasp.yml".format(code_dir))
   gripper = RobotGripper.load(gripper_dir=cfg_grasp['gripper_dir'][class_name])
 
-  names = cfg['dataset'][class_name]['train']
+  # names = cfg['dataset'][class_name]['train']
+  names = cfg['dataset'][class_name]['test']
   obj_dirs = []
   code_dir = os.path.dirname(os.path.realpath(__file__))
   for name in names:

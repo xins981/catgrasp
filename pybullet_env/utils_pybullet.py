@@ -15,7 +15,6 @@ def get_bodies():
   return [p.getBodyUniqueId(i) for i in range(p.getNumBodies())]
 
 
-
 def add_gravity_to_ob(body_id,link_id=-1,gravity=-10):
   ob_mass = p.getDynamicsInfo(body_id,link_id)[0]
   p.applyExternalForce(body_id,link_id,forceObj=[0,0,gravity*ob_mass],posObj=[0,0,0],flags=p.LINK_FRAME)
@@ -45,18 +44,20 @@ def get_link_pose_in_world(body_id,link_id):
   link_in_world[:3,:3] = quaternion_matrix(q_wxyz)[:3,:3]
   return link_in_world
 
+
 def get_pose_A_in_B(bodyA,linkA,bodyB,linkB):
   if linkA==-1:
     A_in_world = get_ob_pose_in_world(bodyA)
   else:
     A_in_world = get_link_pose_in_world(bodyA,linkA)
+
   if linkB==-1:
     B_in_world = get_ob_pose_in_world(bodyB)
   else:
     B_in_world = get_link_pose_in_world(bodyB,linkB)
+
   A_in_B = np.linalg.inv(B_in_world)@A_in_world
   return A_in_B
-
 
 
 def set_body_pose_in_world(body_id,ob_in_world):
@@ -64,7 +65,6 @@ def set_body_pose_in_world(body_id,ob_in_world):
   q_wxyz = quaternion_from_matrix(ob_in_world)
   q_xyzw = [q_wxyz[1],q_wxyz[2],q_wxyz[3],q_wxyz[0]]
   p.resetBasePositionAndOrientation(body_id,trans,q_xyzw)
-
 
 
 def create_urdf_for_mesh(mesh_dir,concave=False, out_dir=None, mass=0.1, has_collision=True, scale=np.ones((3))):
@@ -123,9 +123,6 @@ def create_urdf_for_mesh(mesh_dir,concave=False, out_dir=None, mass=0.1, has_col
   return out_dir
 
 
-
-
-
 def create_object(obj_file,scale,ob_in_world,mass,has_collision=True,useFixedBase=False,concave=False,collision_margin=0.0001):
   '''
   @scale: np array (3)
@@ -158,7 +155,6 @@ def create_duplicate_object(n_ob,obj_file,scale,ob_in_worlds,mass,has_collision=
   return ob_ids
 
 
-
 def create_gripper_visual_shape(gripper,has_collision=False,mass=0):
   obj_file = gripper.mesh_filename
   urdf_dir = f'/tmp/gripper{uuid4()}.urdf'
@@ -166,8 +162,6 @@ def create_gripper_visual_shape(gripper,has_collision=False,mass=0):
   gripper_id = p.loadURDF(urdf_dir,[0, 0, 0], useFixedBase=False)
   p.changeVisualShape(gripper_id,-1,rgbaColor=[1,0,0,1])
   return gripper_id
-
-
 
 
 if __name__=="__main__":

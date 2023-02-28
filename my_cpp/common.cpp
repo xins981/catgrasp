@@ -187,12 +187,12 @@ omp_set_num_threads(int(std::thread::hardware_concurrency()));
 
   CollisionManager cm;
   int gripper_id = cm.registerMesh(gripper_vertices,gripper_faces);
-  cm.registerPointCloud(gripper_collision_pts,octo_resolution);
+  cm.registerPointCloud(gripper_collision_pts,octo_resolution); // gripper_collision_pts: 零件点云（部分，相机系）
 
   CollisionManager cm_bg;
   int gripper_enclosed_id = cm_bg.registerMesh(gripper_enclosed_vertices,gripper_enclosed_faces);
-  cm_bg.registerPointCloud(gripper_enclosed_collision_pts,octo_resolution);
-
+  cm_bg.registerPointCloud(gripper_enclosed_collision_pts,octo_resolution); // gripper_enclosed_collision_pts: 除了零件外的环境，比如其他零件，盒子。。。
+  
   #pragma omp for schedule(dynamic)
   // grasp_poses 是离线生成的 nunocs 抓取位姿
   for (int i=0;i<grasp_poses.size();i++)
@@ -212,9 +212,9 @@ omp_set_num_threads(int(std::thread::hardware_concurrency()));
 
       if (filter_approach_dir_face_camera)
       {
-        Eigen::Vector3f approach_dir = grasp_in_cam.block(0,0,3,1);
+        Eigen::Vector3f approach_dir = grasp_in_cam.block(0,0,3,1); 
         approach_dir.normalize();
-        float dot = approach_dir.dot(Eigen::Vector3f(0,0,1));
+        float dot = approach_dir.dot(Eigen::Vector3f(0,0,1)); // 接触向量和相机夹角大于 90°
         if (dot<0)
         {
           if (verbose)
@@ -227,15 +227,18 @@ omp_set_num_threads(int(std::thread::hardware_concurrency()));
 
       if (filter_ik)
       {
-        Eigen::Matrix4f ee_in_base = cam_in_world*grasp_in_cam*ee_in_grasp;
-        auto sols = get_ik_within_limits(ee_in_base,upper,lower);
-        if (sols.size()==0)
+        if (grasp_in_cam!=Eigen::Matrix4f::Zero())
         {
-          if (verbose)
+          Eigen::Matrix4f ee_in_base = cam_in_world*grasp_in_cam*ee_in_grasp;
+          auto sols = get_ik_within_limits(ee_in_base,upper,lower);
+          if (sols.size()==0)
           {
-            n_ik_rej_local++;
+            if (verbose)
+            {
+              n_ik_rej_local++;
+            }
+            continue;
           }
-          continue;
         }
       }
 
@@ -306,6 +309,7 @@ omp_set_num_threads(int(std::thread::hardware_concurrency()));
           n_open_gripper_rej_local++;
         }
       }
+
 
       if (grasp_in_cam!=Eigen::Matrix4f::Zero())
       {

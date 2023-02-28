@@ -266,8 +266,9 @@ def get_finger_contact_area(finger_mesh,ob_in_finger,ob_pts,grip_dir,ob_normals=
       dist_to_finger_surface = np.abs(within_finger_pts[:,1]-within_finger_pts[:,1].max())
     else:
       raise RuntimeError(f'grip_dir={grip_dir}')
-
-    contact_mask = dist_to_finger_surface<=surface_tol
+    
+    
+    contact_mask = dist_to_finger_surface<=surface_tol 
     if contact_mask.sum()==0:
       return None,None
 

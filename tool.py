@@ -62,12 +62,12 @@ def compute_nunocs_label_worker(color_file):
       mesh_pts = mesh.vertices.copy()*mesh_scale
       max_xyz = mesh_pts.max(axis=0).reshape(1,3)
       min_xyz = mesh_pts.min(axis=0).reshape(1,3)
-      center_xyz = (max_xyz+min_xyz)/2 # 物体 CAD 中心点(物体系)
+      center_xyz = (max_xyz+min_xyz)/2 # 零件形心(物体系)
 
     valid_mask = (seg==seg_id) & (xyz_map[...,2]>=0.1)
     tmp_xyz = xyz_map[valid_mask].reshape(-1,3) # 单个实例点云（杂乱场景，单视角）
     ob_in_world = poses[seg_id].copy()
-    cam_in_world = meta['cam_in_world'].copy() 
+    cam_in_world = meta['cam_in_world'].copy()
     ob_in_cam = np.linalg.inv(cam_in_world)@ob_in_world
     cam_in_ob = np.linalg.inv(ob_in_cam)
     tmp_xyz = (cam_in_ob@to_homo(tmp_xyz).T).T[:,:3]  # 相机坐标转为物体坐标（欧氏空间）

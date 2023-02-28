@@ -43,13 +43,21 @@ from collections import Counter
 
 EXECUTE_TIME_STEP = 0.01
 num_objects = 0 # 盒子里零件的数量
-num_task_grasp_succ = 0
-num_stable_grasp = 0
-num_attempt_grasp = 0
-num_grasp_null = 0
-num_fail_move_to_place_top = 0
-ob_file = None
-cal_trasform = True
+num_task_grasp_succ = 0 # 任务抓取计数
+num_stable_grasp = 0 # 稳定抓取计数
+num_attempt_grasp = 0 # 尝试抓取计数
+num_grasp_null = 0 # 抓取失败的数目（主要是抓空，待确认？）
+num_fail_move_to_place_top = 0 # 下游任务，路径规划失败次数
+ob_file = None # 当前零件绝对路径
+cal_trasform = True # 9D_估 标志位
+i_round = 0 # 场景计数
+i_pick = 0 # 抓取尝试计数
+num_grasp_fail = 0  # 当前零件，抓取失败计数
+num_remove_body = 0 # 抓取失败，被强制移除的零件数
+ob_name = '' # 零件名，做 debug 文件名的前缀用
+data_ob_ply = None # 缓存当前抓取零件点云
+canoni_affor_in_cam = None # 缓存当前抓取零件的 affordance
+sample_grasps_origin = None
 
 
 def compute_grasp_affordance_worker(grasp,finger_mesh_in_grasp,canonical_pts_in_cam,canonical_normals_in_cam,canonical_affordance,kdtree_canonical_in_cam,grip_dirs,finger_meshes,finger_ids):
@@ -58,10 +66,10 @@ def compute_grasp_affordance_worker(grasp,finger_mesh_in_grasp,canonical_pts_in_
   p_T_given_G = []
   grasp.contacts = {}
   for i_finger in range(len(finger_ids)):
-    '''
-      canonical_pts_in_cam : 模板点云（相机系）
-      grip_dirs : 手指方向（沿 y 轴）
-    '''
+    # canonical_pts_in_cam : 模板点云（相机系）
+    # grip_dirs : 手指方向（沿 y 轴）
+    # get_finger_contact_area：首先找到一个距离手指最近的点，距离该点在一个很小值（2mm）范围内的点云被确认为接触表面
+    # 这个算法依赖于点的 y 轴分量确认距离，其没有限制 y 的坐标范围，也就是说，没有做一个夹具内（x，z方向做了）点云的校验
     surface_pts, dist_to_finger_surface = get_finger_contact_area(finger_meshes[i_finger],ob_in_finger=cam_in_finger,
                                                                   ob_pts=canonical_pts_in_cam,
                                                                   ob_normals=canonical_normals_in_cam,
@@ -82,7 +90,8 @@ def compute_grasp_affordance_worker(grasp,finger_mesh_in_grasp,canonical_pts_in_
   return grasp
 
 
-def compute_grasp_affordance(grasps,env,nocs_pose,nocs_cloud,canonical,debug_dir,i_pick,nocs_predicter,gripper,ob_pts,ob_normals):
+def compute_grasp_affordance(grasps,env,nocs_pose,nocs_cloud,canonical,debug_dir,nocs_predicter,gripper,ob_pts,ob_normals):
+  global canoni_affor_in_cam
   print("Computing affordance")
   finger_mesh_in_world = PU.get_link_mesh_pose_matrix(env.robot_id,env.finger_ids[0])
   gripper_base_in_world = get_link_pose_in_world(env.robot_id,env.gripper_id)
@@ -93,18 +102,19 @@ def compute_grasp_affordance(grasps,env,nocs_pose,nocs_cloud,canonical,debug_dir
   canonical_pcd = toOpen3dCloud(canonical['canonical_cloud'],normals=canonical['canonical_normals']) 
   
   canonical_in_cam_pcd = copy.deepcopy(canonical_pcd)
-  canonical_in_cam_pcd.transform(nocs_pose) # nocs_pose --- nunocs 参考系到相机（观察未知实例）系的变换
+  canonical_in_cam_pcd.transform(nocs_pose) # nocs2cam
 
   kdtree_canonical_in_cam = cKDTree(np.asarray(canonical_in_cam_pcd.points).copy())
 
   colors = array_to_heatmap_rgb(canonical['canonical_affordance'])
   pcd = toOpen3dCloud(canonical['canonical_cloud'],colors)
   pcd.transform(nocs_pose)
-  o3d.io.write_point_cloud(f'{debug_dir}/{i_pick}_canonical_affordance_in_cam.ply',pcd)
+  canoni_affor_in_cam = pcd
+  # o3d.io.write_point_cloud(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_canonical_affordance_in_cam.ply',pcd)
 
   nocs_input_cloud = nocs_predicter.data_transformed['cloud_xyz_original'] # 未知实例点云（相机系）
-  pcd = toOpen3dCloud(nocs_input_cloud)
-  o3d.io.write_point_cloud(f'{debug_dir}/{i_pick}_nocs_input_cloud.ply',pcd)
+  # pcd = toOpen3dCloud(nocs_input_cloud)
+  # o3d.io.write_point_cloud(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_nocs_input_cloud.ply',pcd)
   assert nocs_cloud.shape==nocs_input_cloud.shape, f"nocs_cloud {nocs_cloud.shape}, nocs_input_cloud {nocs_input_cloud.shape}"
   kdtree_nocs_input_cloud = cKDTree(nocs_input_cloud)
 
@@ -123,10 +133,10 @@ def compute_grasp_affordance(grasps,env,nocs_pose,nocs_cloud,canonical,debug_dir
   return grasps
 
 
-def compute_candidate_grasp_one_ob(ags,ob_pts,ob_normals,open_gripper_collision_pts,scene_pts,i_pick,env,
+def compute_candidate_grasp_one_ob(ags,ob_pts,ob_normals,open_gripper_collision_pts,scene_pts,env,
                                   symmetry_tfs,debug_dir,nocs_predicter,gripper,canonical,ik_func=None,
-                                  compute_affordance=True,center_ob_between_gripper=True, ob_id_in_env=None):
-  global ob_file, cal_trasform
+                                  compute_affordance=False,center_ob_between_gripper=True, ob_in_cam=None):
+  global ob_file, cal_trasform, data_ob_ply
   # 零件下采样
   pcd = toOpen3dCloud(ob_pts)
   pcd = pcd.voxel_down_sample(voxel_size=0.0005)
@@ -142,8 +152,9 @@ def compute_candidate_grasp_one_ob(ags,ob_pts,ob_normals,open_gripper_collision_
         'cloud_xyz': ob_pts_down,
         'cloud_normal': ob_normals_down,
       }
-  pcd = toOpen3dCloud(ob_pts_down,normals=ob_normals_down)
-  o3d.io.write_point_cloud(f'{debug_dir}/{i_pick}_ob.ply',pcd)
+  data_ob_ply = data
+  # pcd = toOpen3dCloud(ob_pts_down,normals=ob_normals_down)
+  # o3d.io.write_point_cloud(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_ob.ply',pcd)
 
   # 提取背景和 gripper 碰撞的部分点云
   kdtree = cKDTree(ob_pts)
@@ -156,28 +167,28 @@ def compute_candidate_grasp_one_ob(ags,ob_pts,ob_normals,open_gripper_collision_
   pcd = pcd.voxel_down_sample(voxel_size=0.001)
   octomap_resolution = 0.001
   background_pts = my_cpp.makeOccupancyGridFromCloudScan(np.asarray(pcd.points),env.K,octomap_resolution)
-  pcd = toOpen3dCloud(background_pts)
-  o3d.io.write_point_cloud(f'{debug_dir}/{i_pick}_grasp_collision_background_pts.ply',pcd)
+  # pcd = toOpen3dCloud(background_pts)
+  # o3d.io.write_point_cloud(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_grasp_collision_background_pts.ply',pcd)
 
-  pcd = toOpen3dCloud(data['cloud_xyz'],normals=data['cloud_normal'])
-  o3d.io.write_point_cloud(f'{debug_dir}/{i_pick}_nocs_input.ply',pcd)
+  # pcd = toOpen3dCloud(data['cloud_xyz'],normals=data['cloud_normal'])
+  # o3d.io.write_point_cloud(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_nocs_input.ply',pcd)
 
   
-  nocs_cloud, nocs_pose = nocs_predicter.predict(copy.deepcopy(data), cal_transform=cal_trasform, obj_file=ob_file, 
-                                                obj_id_in_env=ob_id_in_env, debug_dir=debug_dir, i_pick=i_pick)
+  nocs_cloud, nocs_pose = nocs_predicter.predict(copy.deepcopy(data), net_9d=cal_trasform, obj_file=ob_file, 
+                                                obj_in_cam=ob_in_cam, debug_dir=debug_dir, i_pick=i_pick)
   
   if nocs_pose is None:
     print("Cur nocs_pose is None")
     return [],None
 
-  np.savetxt(f'{debug_dir}/{i_pick}_nocs_pose.txt',nocs_pose)
+  # np.savetxt(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_nocs_pose.txt',nocs_pose)
 
-  pcd = toOpen3dCloud(nocs_cloud)
-  o3d.io.write_point_cloud(f'{debug_dir}/{i_pick}_nocs_cloud.ply',pcd)
-  pcd.transform(nocs_pose) # 相机系点云
-  data['nocs_transformed'] = np.asarray(pcd.points).copy()
-  o3d.io.write_point_cloud(f'{debug_dir}/{i_pick}_nocs_transformed.ply',pcd)
-  print('nocs_pose:\n',nocs_pose)
+  # pcd = toOpen3dCloud(nocs_cloud)
+  # o3d.io.write_point_cloud(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_nocs_cloud.ply',pcd)
+  # pcd.transform(nocs_pose) # 相机系点云
+  # data['nocs_transformed'] = np.asarray(pcd.points).copy()
+  # o3d.io.write_point_cloud(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_nocs_transformed.ply',pcd)
+  # print('nocs_pose:\n',nocs_pose)
 
   # observed_center = (ob_pts.max(axis=0)+ob_pts.min(axis=0))/2 # 部分点云计算得到的形心
   # nocs_in_world = env.cam_in_world@nocs_pose
@@ -209,17 +220,18 @@ def compute_candidate_grasp_one_ob(ags,ob_pts,ob_normals,open_gripper_collision_
 
   if compute_affordance:
     grasps = compute_grasp_affordance(grasps=grasps,env=env,nocs_pose=nocs_pose,nocs_cloud=nocs_cloud,
-                                      canonical=canonical,debug_dir=debug_dir,i_pick=i_pick,
+                                      canonical=canonical,debug_dir=debug_dir,
                                       nocs_predicter=nocs_predicter,gripper=gripper,
                                       ob_pts=ob_pts,ob_normals=ob_normals)
 
   return grasps,data
 
-
-def compute_candidate_grasp(rgb,depth,seg,i_pick,env,ags,symmetry_tfs,ik_func=None):
+# 实例分割，零件抓取迭代器
+def compute_candidate_grasp(rgb,depth,seg,env,ags,symmetry_tfs,ik_func=None):
   '''
   @seg: is the gt 2-D seg in simulation. We only use it to remove background objects.
   '''
+  global sample_grasps_origin
   ########## Remove background
   bg_mask = depth<0.1
   for id in env.env_body_ids:
@@ -231,7 +243,6 @@ def compute_candidate_grasp(rgb,depth,seg,i_pick,env,ags,symmetry_tfs,ik_func=No
   scene_colors = rgb[xyz_map[:,:,2]>=0.1].reshape(-1,3)
 
   scene_pts_no_bg = xyz_map[bg_mask==0].reshape(-1,3)
-  scene_pts_seg_id_no_bg = seg[bg_mask==0].reshape(-1, 1)
   scene_colors_no_bg = rgb[bg_mask==0].reshape(-1,3)
   if len(scene_pts_no_bg)==0:
     print("scene_pts_no_bg is empty")
@@ -243,10 +254,10 @@ def compute_candidate_grasp(rgb,depth,seg,i_pick,env,ags,symmetry_tfs,ik_func=No
   scene_normals_no_bg = np.asarray(pcd.normals).copy()
   seg_input_data = {'cloud_xyz':scene_pts_no_bg, 'cloud_rgb':scene_colors_no_bg, 'cloud_normal':scene_normals_no_bg}
   scene_seg = seg_predicter.predict(copy.deepcopy(seg_input_data))
-  pcd = toOpen3dCloud(seg_predicter.xyz_shifted)
-  o3d.io.write_point_cloud(f'{debug_dir}/{i_pick}_xyz_shifted.ply',pcd)
 
-  seg_id_to_obj_id = {}
+  # pcd = toOpen3dCloud(seg_predicter.xyz_shifted)
+  # o3d.io.write_point_cloud(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_xyz_shifted.ply',pcd)
+
   seg_colors = np.zeros(seg_input_data['cloud_xyz'].shape)
   seg_ids = np.unique(scene_seg)
   for seg_id in seg_ids:
@@ -257,10 +268,6 @@ def compute_candidate_grasp(rgb,depth,seg,i_pick,env,ags,symmetry_tfs,ik_func=No
       print(f"segment too small, n_pt={n_pt}")
       is_inlier = False
     seg_pts = seg_input_data['cloud_xyz'][seg_mask]
-    seg_pts_obj_ids = scene_pts_seg_id_no_bg[seg_mask].reshape(-1).tolist()
-    seg_pts_obj_ids_statistic = Counter(seg_pts_obj_ids).most_common()
-    seg_pts_obj_id = seg_pts_obj_ids_statistic[0][0]
-    seg_id_to_obj_id[seg_id] = seg_pts_obj_id
     if is_inlier:
       max_xyz = seg_pts.max(axis=0)
       min_xyz = seg_pts.min(axis=0)
@@ -276,14 +283,14 @@ def compute_candidate_grasp(rgb,depth,seg,i_pick,env,ags,symmetry_tfs,ik_func=No
       seg_colors[seg_mask] = np.zeros((3))
       scene_seg[seg_mask] = -1
 
-  pcd = toOpen3dCloud(seg_input_data['cloud_xyz'],seg_colors)
-  o3d.io.write_point_cloud(f'{debug_dir}/{i_pick}_seg_pred.ply',pcd)
+  # pcd = toOpen3dCloud(seg_input_data['cloud_xyz'],seg_colors)
+  # o3d.io.write_point_cloud(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_seg_pred.ply',pcd)
 
   pcd = toOpen3dCloud(scene_pts,colors=scene_colors)
   pcd = pcd.voxel_down_sample(voxel_size=0.001)
   pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.003, max_nn=30))
   pcd = correct_pcd_normal_direction(pcd)
-  o3d.io.write_point_cloud('{}/{}scene.ply'.format(debug_dir,i_pick),pcd)
+  # o3d.io.write_point_cloud('{}/{}_{}_{}_scene.ply'.format(debug_dir, ob_name, i_round, i_pick),pcd)
   scene_pts = np.asarray(pcd.points).copy()
   scene_colors = np.asarray(pcd.colors).copy()
 
@@ -310,15 +317,8 @@ def compute_candidate_grasp(rgb,depth,seg,i_pick,env,ags,symmetry_tfs,ik_func=No
     ob_pts = seg_input_data['cloud_xyz'][scene_seg==seg_id] # 零件部分点云（实例分割得到)
     ob_normals = seg_input_data['cloud_normal'][scene_seg==seg_id]
     open_gripper_collision_pts = copy.deepcopy(ob_pts)
-    grasps,data = compute_candidate_grasp_one_ob(ags,ob_pts,ob_normals,
-                                                open_gripper_collision_pts=open_gripper_collision_pts,
-                                                scene_pts=scene_pts,i_pick=i_pick,env=env,symmetry_tfs=symmetry_tfs,
-                                                debug_dir=debug_dir,nocs_predicter=nocs_predicter,gripper=gripper,
-                                                canonical=canonical,ik_func=tmp_ik_func, ob_id_in_env=seg_id_to_obj_id[seg_id])
-    if len(grasps)==0:
-      continue
 
-    ########### Find the body_id in simulator that current predicted seg correspondes to
+    #region Find the body_id in simulator that current predicted seg correspondes to
     body_ids = np.unique(seg)
     best_body_id = None
     best_dist = np.inf
@@ -334,7 +334,18 @@ def compute_candidate_grasp(rgb,depth,seg,i_pick,env,ags,symmetry_tfs,ik_func=No
         best_dist = dist
         best_body_id = body_id
     body_id = copy.deepcopy(best_body_id)
+    #endregion
 
+    ob2cam = get_pose_A_in_B(body_id, -1, env.camera.cam_id, -1)
+    grasps,data = compute_candidate_grasp_one_ob(ags,ob_pts,ob_normals, open_gripper_collision_pts=open_gripper_collision_pts,
+                                                scene_pts=scene_pts,env=env,symmetry_tfs=symmetry_tfs,
+                                                debug_dir=debug_dir,nocs_predicter=nocs_predicter,gripper=gripper,
+                                                canonical=canonical,ik_func=tmp_ik_func, ob_in_cam=ob2cam)
+    if len(grasps)==0:
+      continue
+    sample_grasps_origin = grasps
+
+    
     ob_data[body_id] = data
 
     cnt += 1
@@ -348,31 +359,30 @@ def compute_candidate_grasp(rgb,depth,seg,i_pick,env,ags,symmetry_tfs,ik_func=No
       grasp_pose = grasps[i_grasp].get_grasp_pose_matrix()
       grasp_poses.append(grasp_pose)
 
-    ret = grasp_predicter.predict_batch(data,grasp_poses)
-    for i_grasp in range(len(grasp_poses)):
-      pred_label,confidence,pred = ret[i_grasp]
-      p_G = (pred*np.arange(len(pred))).sum()/(len(cfg_grasp['classes'])-1)
-      grasps[i_grasp].p_T_G = grasps[i_grasp].p_T_given_G*p_G
-      grasps[i_grasp].p_G = p_G
-      grasps[i_grasp].seg_id = seg_id
-      grasps[i_grasp].pred_label = pred_label
-      grasps[i_grasp].pred = pred
-      grasps[i_grasp].body_id = body_id
+    # ret = grasp_predicter.predict_batch(data,grasp_poses)
+    # for i_grasp in range(len(grasp_poses)):
+      # pred_label,confidence,pred = ret[i_grasp]
+      # p_G = (pred*np.arange(len(pred))).sum()/(len(cfg_grasp['classes'])-1)
+      # grasps[i_grasp].p_T_G = grasps[i_grasp].p_T_given_G*p_G
+      # grasps[i_grasp].p_G = p_G
+      # grasps[i_grasp].seg_id = seg_id
+      # grasps[i_grasp].pred_label = pred_label
+      # grasps[i_grasp].pred = pred
+      # grasps[i_grasp].body_id = body_id
 
     print('#grasps={}'.format(len(grasps)))
     if len(grasps)==0:
-      return None
+      return None, body_id
 
     def candidate_compare_key(grasp):
       return -grasp.p_T_G
-      # return -grasp.p_G
 
-    grasps = sorted(grasps, key=candidate_compare_key)
-    yield grasps
+    # grasps = sorted(grasps, key=candidate_compare_key)
+    yield grasps, body_id
 
 
-def pick_action(grasp,env,gripper_vis_id,i_pick,debug_dir):
-  global num_attempt_grasp, num_grasp_null
+def pick_action(grasp,env,gripper_vis_id,debug_dir):
+  global num_attempt_grasp, num_grasp_null, num_grasp_fail
   PU.set_joint_positions(env.robot_id,env.arm_ids,np.zeros((len(env.arm_ids))))
   env.env_grasp.open_gripper()
   grasp_in_cam = grasp.grasp_pose.copy()
@@ -386,6 +396,7 @@ def pick_action(grasp,env,gripper_vis_id,i_pick,debug_dir):
   if command is None:
     p.restoreState(tmp_id)
     p.removeState(tmp_id)
+    save_grasp_pose_mesh(gripper,grasp_in_cam,out_dir=f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_not_ikgrasp.obj')
     return 0
 
   p.restoreState(tmp_id)
@@ -394,10 +405,9 @@ def pick_action(grasp,env,gripper_vis_id,i_pick,debug_dir):
 
   grasp_in_cam = np.linalg.inv(env.cam_in_world)@grasp_in_world
   gripper = env.env_grasp.gripper
-  save_grasp_pose_mesh(gripper,grasp_in_cam,out_dir=f'{debug_dir}/{i_pick}_grasp.obj')
-  save_grasp_pose_mesh(gripper,grasp_in_cam,out_dir=f'{debug_dir}/{i_pick}_grasp_enclosed.obj',enclosed=True)
-  with gzip.open(f'{debug_dir}/{i_pick}_grasp.pkl','wb') as ff:
-    pickle.dump(grasp,ff)
+  
+  # with gzip.open(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_grasp.pkl','wb') as ff:
+  #   pickle.dump(grasp,ff)
 
   env.env_grasp.close_gripper()
   num_attempt_grasp += 1
@@ -406,11 +416,20 @@ def pick_action(grasp,env,gripper_vis_id,i_pick,debug_dir):
   finger_joint_pos = PU.get_joint_positions(env.robot_id,env.finger_ids)
   if np.all(np.abs(finger_joint_pos-upper)<0.001):
     print("Grasp nothing")
+    num_grasp_fail += 1
     num_grasp_null += 1
+    save_grasp_pose_mesh(gripper,grasp_in_cam,out_dir=f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_{num_grasp_fail}_grasp.obj')
+    save_grasp_pose_mesh(gripper,grasp_in_cam,out_dir=f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_{num_grasp_fail}_grasp_enclosed.obj',enclosed=True)
+    log(f'{ob_name}_{i_round}_{i_pick}_{num_grasp_fail}_grasp.obj', fail_grasp_dir)
+    log(f'{ob_name}_{i_round}_{i_pick}_{num_grasp_fail}_grasp_enclosed.obj', fail_grasp_dir)
+    log(' ', fail_grasp_dir)
     # input('press ENTER to continue')
     p.restoreState(tmp_id)
     p.removeState(tmp_id)
     return 0
+  
+  save_grasp_pose_mesh(gripper,grasp_in_cam,out_dir=f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_grasp_success.obj')
+  save_grasp_pose_mesh(gripper,grasp_in_cam,out_dir=f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_grasp_success_enclosed.obj',enclosed=True)
 
   p.removeState(tmp_id)
 
@@ -530,10 +549,10 @@ def is_done():
   return is_done
 
 
-def simulate_grasp_with_arm(ob_name):
-  global num_objects, ob_file
+def simulate_grasp_with_arm(obj_name):
+  global num_objects, ob_file, i_pick, num_grasp_fail, num_remove_body
   code_dir = os.path.dirname(os.path.realpath(__file__))
-  ob_file = f"{code_dir}/data/object_models/{ob_name}.obj"
+  ob_file = f"{code_dir}/data/object_models/{obj_name}.obj"
   set_body_pose_in_world(env.camera.cam_id,env.cam_in_world)
   env.add_bin()
   place_dir = ob_file.replace('.obj','_place.obj')
@@ -556,8 +575,7 @@ def simulate_grasp_with_arm(ob_name):
     return False
 
   num_objects = np.random.randint(4,7) # 随机场景中的零件数，4~6个
-  env.make_pile(obj_file=ob_file,scale_range=[1,1],n_ob_range=[num_objects,num_objects+1],
-                remove_condition=remove_condition)
+  env.make_pile(obj_file=ob_file,scale_range=[1,1],n_ob_range=[num_objects,num_objects+1], remove_condition=remove_condition)
 
   #########!NOTE Replace with concave model. Dont do this when making pile, it's too slow
   ob_concave_urdf_dir = f'/tmp/{os.path.basename(ob_file)}_{uuid4()}.urdf'
@@ -587,8 +605,6 @@ def simulate_grasp_with_arm(ob_name):
   p.setGravity(0,0,-10)
 
   grasp_seq = []
-    
-
 
   body_ids = PU.get_bodies()
   for body_id in body_ids:
@@ -611,29 +627,57 @@ def simulate_grasp_with_arm(ob_name):
       continue
     p.changeDynamics(body_id,-1,activationState=p.ACTIVATION_STATE_ENABLE_SLEEPING)
 
-  i_pick = 0
   while 1:
     PU.set_joint_positions(env.robot_id,env.arm_ids,np.zeros((len(env.arm_ids))))
     # i_pick = len(grasp_seq)
-    i_pick += 1
+    
     tmp = np.eye(4)
     tmp[:3,3] = [9,0,0]
     set_body_pose_in_world(gripper_vis_id,tmp)
     env.env_grasp.open_gripper()
     env.simulation_until_stable()
-    p.saveBullet('{}/{}_state.bullet'.format(debug_dir,i_pick))
+    p.saveBullet('{}/{}_{}_{}_state.bullet'.format(debug_dir,ob_name,i_round,i_pick))
     rgb,depth,seg = env.camera.render(env.cam_in_world)
-    Image.fromarray(rgb).save(f'{debug_dir}/{i_pick}_rgb.png') # 观察值：rgb 图像
-    cv2.imwrite(f'{debug_dir}/{i_pick}_gt_seg.png',seg) # 观察值：实例分割图像
+    # Image.fromarray(rgb).save(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_rgb.png') # 观察值：rgb 图像
+    # cv2.imwrite(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_gt_seg.png',seg) # 观察值：实例分割图像
 
     skipped_grasps = []
     visited_seg_ids = set()
     place_ret = -1
     pick_ret = -1
+    num_null_sample = 0
+    
     # 零件大循环
-    for grasps in compute_candidate_grasp(rgb,depth,seg,i_pick=i_pick,env=env,ags=ags,symmetry_tfs=symmetry_tfs,ik_func=ik_func):
+    for grasps, bd_id in compute_candidate_grasp(rgb,depth,seg,env=env,ags=ags,symmetry_tfs=symmetry_tfs,ik_func=ik_func):
       if grasps is None or len(grasps)==0:
+        if num_null_sample > 2:
+          body_id = bd_id
+          break
+        num_null_sample += 1
         continue
+      i_pick += 1
+      num_grasp_fail = 0
+
+      #region 可视化场景，零件
+      K = np.array(cfg['K']).reshape(3,3)
+      xyz_map = depth2xyzmap(depth,K)
+      scene_pts = xyz_map[xyz_map[:,:,2]>=0.1].reshape(-1,3)
+      scene_colors = rgb[xyz_map[:,:,2]>=0.1].reshape(-1,3)
+      pcd = toOpen3dCloud(scene_pts,colors=scene_colors)
+      pcd = pcd.voxel_down_sample(voxel_size=0.001)
+      pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.003, max_nn=30))
+      pcd = correct_pcd_normal_direction(pcd)
+      o3d.io.write_point_cloud('{}/{}_{}_{}_scene.ply'.format(debug_dir, ob_name, i_round, i_pick),pcd)
+
+      pcd = toOpen3dCloud(data_ob_ply['cloud_xyz'],normals=data_ob_ply['cloud_normal'])
+      o3d.io.write_point_cloud(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_ob.ply',pcd)
+
+      # o3d.io.write_point_cloud(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_canonical_affordance_in_cam.ply',canoni_affor_in_cam)
+
+      with gzip.open(f'{debug_dir}/{ob_name}_{i_round}_{i_pick}_sample_grasps_origin.pkl','wb') as ff:
+        pickle.dump(sample_grasps_origin, ff)
+      #endregion
+
 
       state_id = p.saveState()
       body_ids = PU.get_bodies()
@@ -645,9 +689,9 @@ def simulate_grasp_with_arm(ob_name):
         visited_seg_ids.add(body_id)
         if body_id not in body_ids: # 跳过非零件抓取位姿
           continue
-        p.changeVisualShape(body_id,-1,rgbaColor=[0,0,1,1]) # 可视化：重点标识（颜色）正在抓取的零件
+        p.changeVisualShape(body_id,-1,rgbaColor=[0,0,1,1]) # 标识（蓝色）正在抓取的零件
 
-        region 按照配置文件的阈值，过滤抓取
+        #region 按照配置文件的阈值，过滤抓取
         if grasp.p_T_G<p_T_G_thres:
           skipped_grasps.append(grasp)
           break
@@ -669,11 +713,12 @@ def simulate_grasp_with_arm(ob_name):
           skipped_grasps.append(grasp)
           continue
         #endregion
-
+        
         PU.set_joint_positions(env.robot_id,env.arm_ids,np.zeros((len(env.arm_ids))))
-        pick_ret = pick_action(grasp,env,gripper_vis_id,i_pick,debug_dir=debug_dir)
+        pick_ret = pick_action(grasp,env,gripper_vis_id,debug_dir=debug_dir)
         if pick_ret<=0: 
           print(f"grasp {i_grasp} pick_action failed")
+          place_ret = -1
           continue
 
         place_in_world = get_ob_pose_in_world(place_id)
@@ -698,23 +743,23 @@ def simulate_grasp_with_arm(ob_name):
       p.removeState(state_id)
 
       if place_ret>0:
-        break
+        break # 结束该零件
 
       print(f'body {body_id} all failed')
-
+      
       if len(visited_seg_ids)>3:
-        break
+        break # 结束该零件
 
-    if place_ret>0: # 继续抓取剩余的零件
-      continue
+    if place_ret>0: 
+      continue # 继续抓取剩余的零件
 
     print("No suitable pick. Checking skipped grasps for anything runnable...")
     skipped_grasps = sorted(list(skipped_grasps), key=lambda x:-x.p_T_G) # 按照联合概率密度排序
     # skipped_grasps = sorted(list(skipped_grasps), key=lambda x:-x.p_G)
-    with gzip.open(f'{debug_dir}/skipped_grasps.pkl','wb') as ff:
-      pickle.dump(skipped_grasps,ff)
+    # with gzip.open(f'{debug_dir}/skipped_grasps.pkl','wb') as ff:
+    #   pickle.dump(skipped_grasps,ff)
     for i_grasp,grasp in enumerate(skipped_grasps):
-      pick_ret = pick_action(grasp,env,gripper_vis_id,i_pick,debug_dir=debug_dir)
+      pick_ret = pick_action(grasp,env,gripper_vis_id,debug_dir=debug_dir)
       if pick_ret<=0:
         print(f"skipped grasp {i_grasp} pick_action failed")
         continue
@@ -729,6 +774,7 @@ def simulate_grasp_with_arm(ob_name):
       print("\nFAIL\n")
       # input('press ENTER to continue')
       p.removeBody(body_id)
+      num_remove_body += 1
       if is_done():
         return
 
@@ -744,6 +790,9 @@ if __name__=="__main__":
   torch.backends.cudnn.deterministic = True
 
   debug_dir = '/tmp/catgrasp'
+  # debug_dir = '/tmp/catgrasp_9d_esti'
+  # debug_dir = '/tmp/catgrasp_transfer'
+  os.system(f'rm -rf {debug_dir}')
   os.system(f'mkdir -p {debug_dir}')
 
   code_dir = os.path.dirname(os.path.realpath(__file__))
@@ -766,14 +815,17 @@ if __name__=="__main__":
   
   grasp_predicter = GraspPredicter(class_name)
   if model_path != 'None':
-    nocs_predicter = NunocsPredicter(class_name, art_dir=f'{code_dir}/logs/{class_name}_nunocs/{model_path}', env=env)
+    nocs_predicter = NunocsPredicter(class_name, art_dir=f'{code_dir}/logs/{class_name}_nunocs/{model_path}')
   else:
-    nocs_predicter = NunocsPredicter(class_name, env=env)
+    nocs_predicter = NunocsPredicter(class_name)
   seg_predicter = PointGroupPredictor(class_name)
 
   code_dir = os.path.dirname(os.path.realpath(__file__))
-  with gzip.open(f'{code_dir}/data/object_models/{class_name}_canonical.pkl','rb') as ff:
+  with gzip.open(f'{code_dir}/data/object_models/{class_name}_test_canonical.pkl','rb') as ff:
     canonical = pickle.load(ff)
+
+  # with gzip.open(f'{code_dir}/data/object_models/{class_name}_canonical.pkl','rb') as ff:
+  #   canonical = pickle.load(ff)
 
   # samplers = [
   #   PointConeGraspSampler(gripper,cfg_grasp),
@@ -781,13 +833,16 @@ if __name__=="__main__":
   #                             score_larger_than=cfg_run['nocs_grasp_sampler_score_larger_than'],
   #                             max_n_grasp=cfg_run['nocs_grasp_sampler_max_n_grasp']),
   #   ]
+  
   samplers = [
-    PointConeGraspSampler(gripper,cfg_grasp)
+    NocsTransferGraspSampler(gripper,cfg_grasp, canonical, class_name=class_name, 
+                              score_larger_than=cfg_run['nocs_grasp_sampler_score_larger_than'],
+                              max_n_grasp=cfg_run['nocs_grasp_sampler_max_n_grasp']),
     ]
-
+  
   ags = CombinedGraspSampler(gripper,cfg_grasp,samplers=samplers)
   
-  class_name_to_artifact_id = {
+  class_name_to_artifact_id = { 
       'nut': 78,
       'hnm': 73,
       'screw': 76
@@ -800,16 +855,16 @@ if __name__=="__main__":
     save_dir = f'{code_dir}/logs/{class_name}_nunocs/{model_path}/grasp.out'
   else:
     save_dir = f'{code_dir}/artifacts/artifacts-{artifact_id}/log.out'
-    # save_dir = f'{code_dir}/artifacts/artifacts-{artifact_id}/log_test_canonical.out'
+    # save_dir = f'{code_dir}/artifacts/artifacts-{artifact_id}/log_9d_esti.out'
+    # save_dir = f'{code_dir}/artifacts/artifacts-{artifact_id}/log_transfer.out'
   
+  fail_grasp_dir = save_dir.replace('log', 'fail_grasp')
+  if not os.path.exists(fail_grasp_dir):
+    os.system(f'touch {fail_grasp_dir}')
+
+  tic = time.time()
   for obj_name in object_names:
     for cal_trasform in cal_trans:
-      # with gzip.open(f'{code_dir}/data/object_models/{obj_name}_canonical.pkl','rb') as ff:
-      #   canonical_temp = pickle.load(ff)
-      # canonical['canonical_cloud'] = canonical_temp['canonical_cloud']
-      # canonical['canonical_normals'] = canonical_temp['canonical_normals']
-      # canonical['canonical_affordance'] = canonical_temp['canonical_affordance']
-      
       if cal_trasform == 'True':
         cal_trasform = True
         log("network predict:", save_dir)
@@ -821,32 +876,46 @@ if __name__=="__main__":
       attem_total = 0
       stable_total = 0
       fail_total = 0
+      complete_total = 0
+      obj_total = 0
       
+      i_round = 0
       for i in range(ite_per_obj):
+        i_round += 1
+        i_pick = 0
+        num_remove_body = 0
         num_task_grasp_succ = 0
         num_stable_grasp = 0
         num_attempt_grasp = 0
         num_grasp_null = 0
         num_fail_move_to_place_top = 0
+        ob_name = obj_name
         simulate_grasp_with_arm(obj_name)
         env.reset()
         num_attempt_grasp -= num_fail_move_to_place_top
+        num_complete = num_objects - num_remove_body
         task_perc = '{:d}' .format(int(num_task_grasp_succ / num_attempt_grasp * 100))
         stable_perc = '{:d}' .format(int(num_stable_grasp / num_attempt_grasp * 100))
         fail_perc = '{:d}' .format(int(num_grasp_null / num_attempt_grasp * 100))
         nocs_inlier_perc = '{:d}' .format(int(nocs_predicter.best_ratio * 100))
+        complete_perc = '{:d}' .format(int(num_complete / num_objects * 100))
         attem_total += num_attempt_grasp
         task_total += num_task_grasp_succ
         stable_total += num_stable_grasp
         fail_total += num_grasp_null
-        log_str = '{}, num_objects={}, num_task_grasp_succ={} {}%, num_stable_grasp={} {}%, num_grasp_fail={} {}%, num_fail_move_arm={}, num_attempt_grasp={}, nucs_inlier_ratio={}%'\
-          .format(obj_name, num_objects, num_task_grasp_succ, task_perc, num_stable_grasp, stable_perc, num_grasp_null, fail_perc, num_fail_move_to_place_top, num_attempt_grasp, nocs_inlier_perc)
+        complete_total += num_complete
+        obj_total += num_objects
+        log_str = '{}, num_objects={}, num_task_grasp_succ={} {}%, num_stable_grasp={} {}%, num_grasp_fail={} {}%, num_fail_move_arm={}, num_attempt_grasp={}, num_complete={} {}%, nocs_inlier_ratio={}%'\
+          .format(obj_name, num_objects, num_task_grasp_succ, task_perc, num_stable_grasp, stable_perc, num_grasp_null, fail_perc, num_fail_move_to_place_top, num_attempt_grasp, num_complete, complete_perc, nocs_inlier_perc)
         log(log_str, save_dir)
 
       task_total_perc = '{:d}' .format(int(task_total / attem_total * 100))
       stable_total_perc = '{:d}' .format(int(stable_total / attem_total * 100))
       fail_total_perc = '{:d}' .format(int(fail_total / attem_total * 100))
-      log_str = 'statistic: task={}% stable={}% fail={}%\n' .format(task_total_perc, stable_total_perc, fail_total_perc)
+      complete_total_perc = '{:d}' .format(int(complete_total / obj_total * 100))
+      log_str = 'statistic: task={}% stable={}% fail={}% complete={}%\n' .format(task_total_perc, stable_total_perc, fail_total_perc, complete_total_perc)
       log(log_str, save_dir)
 
     log('\n', save_dir)
+  total_time = (time.time() - tic) / 3600.0
+  log(f'total time: {total_time} hr', save_dir)

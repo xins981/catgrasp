@@ -93,7 +93,7 @@ class GraspPredicter:
 
 
 class NunocsPredicter:
-  def __init__(self,class_name, art_dir=None, env=None):
+  def __init__(self,class_name, art_dir=None):
     self.class_name = class_name
     self.class_name_to_artifact_id = {
       'nut': 78,
@@ -133,11 +133,10 @@ class NunocsPredicter:
       self.model = load_model(self.model,ckpt_dir='{}/best_val.pth.tar'.format(artifact_dir))
     self.model.cuda().eval()
 
-    with gzip.open(f'{code_dir}/data/object_models/{class_name}_test_canonical2general.pkl','rb') as ff:
-      self.transforms_to_general = pickle.load(ff)
-    self.env = env
+    with gzip.open(f'{code_dir}/data/object_models/{class_name}_test_nocs2objs.pkl','rb') as ff:
+      self.nocs2objs = pickle.load(ff)
 
-  def predict(self,data, cal_transform=True, obj_file=None, obj_id_in_env=None, debug_dir=None, i_pick=None):
+  def predict(self,data, net_9d=True, obj_file=None, obj_in_cam=None, debug_dir=None, i_pick=None):
     with torch.no_grad():
       data['cloud_nocs'] = np.zeros(data['cloud_xyz'].shape) # data: 相机系数据
       data['cloud_rgb'] = np.zeros(data['cloud_xyz'].shape)
@@ -153,18 +152,17 @@ class NunocsPredicter:
       nocs_cloud = pred_coords.data.cpu().numpy() - 0.5 # 标准坐标系平移到零件形心
 
       #region 提取每个点 Z 分量的概率值, 调试用
-      probs = pred.softmax(dim=-1)
-      confidence_z = torch.gather(probs[:,2,:],dim=-1,index=pred[:,2,:].argmax(dim=-1).unsqueeze(-1)).data.cpu().numpy().reshape(-1)
-      conf_color = array_to_heatmap_rgb(confidence_z)
-      pcd = toOpen3dCloud(nocs_cloud, conf_color)
-      o3d.io.write_point_cloud(f'{debug_dir}/{i_pick}_confidence_z.ply',pcd)
+      # probs = pred.softmax(dim=-1)
+      # confidence_z = torch.gather(probs[:,2,:],dim=-1,index=pred[:,2,:].argmax(dim=-1).unsqueeze(-1)).data.cpu().numpy().reshape(-1)
+      # conf_color = array_to_heatmap_rgb(confidence_z)
+      # pcd = toOpen3dCloud(nocs_cloud, conf_color)
+      # o3d.io.write_point_cloud(f'{debug_dir}/{i_pick}_confidence_z.ply',pcd)
       #endregion
       
       nocs_cloud_down = copy.deepcopy(nocs_cloud) # 网络预测的 nocs 坐标
       ori_cloud_down = copy.deepcopy(ori_cloud) # 零件点云相机坐标
-
       
-      if cal_transform:
+      if net_9d:
         best_ratio = 0
         best_transform = None
         best_nocs_cloud = None
@@ -218,22 +216,15 @@ class NunocsPredicter:
         nocs_cloud = (best_symmetry_tf@to_homo(nocs_cloud).T).T[:,:3]
       else:
         err_thres = 0.003
-        obj2world = get_ob_pose_in_world(obj_id_in_env)
-        cam2world = self.env.cam_in_world
-        obj2cam = np.linalg.inv(cam2world) @ obj2world
-        nocs2obj = self.transforms_to_general['nocs_to_obj'][obj_file]
-        nocs2cam = obj2cam @ nocs2obj
-
+        nocs2obj = self.nocs2objs[obj_file]
+        nocs2cam = obj_in_cam @ nocs2obj
         transform = nocs2cam
-        part_in_cam = data_transformed['cloud_xyz_original']
-        # cam2nocs = np.linalg.inv(nocs2cam)
-        # part_in_nocs = (cam2nocs @ to_homo(part_in_cam).T).T[:,:3]
-        part_in_nocs = nocs_cloud_down
-        part_in_cam_transformed = (nocs2cam @ to_homo(part_in_nocs).T).T[:,:3]
-        errs = np.linalg.norm(part_in_cam_transformed-part_in_cam, axis=1)
+
+        part_in_cam_transformed = (transform @ to_homo(nocs_cloud_down).T).T[:,:3]
+        errs = np.linalg.norm(part_in_cam_transformed-ori_cloud_down, axis=1)
         self.best_ratio = np.sum(errs<=err_thres)/len(errs)
         self.nocs_pose = transform.copy()
-        nocs_cloud = part_in_nocs
+        nocs_cloud = nocs_cloud_down
 
       # nocs_cloud 标准点云， transform 标准系到相机系的变换矩阵
       return nocs_cloud, transform

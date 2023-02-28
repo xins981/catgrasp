@@ -81,7 +81,7 @@ dataset:
     test:
       [
         "screw_carr_94323A329_NYLON.obj",
-        "screw_carr_97334A764_NYLON.obj",
         "screw_carr_97435A401_WEAR.obj",
-        "screw_carr_63625K310_POLYPROPYLENE.obj",
+        "screw_carr_97334A764_NYLON.obj",
+        "screw_carr_63625K310_POLYPROPYLENE.obj"
       ]

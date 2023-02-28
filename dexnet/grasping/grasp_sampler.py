@@ -194,7 +194,7 @@ class PointConeGraspSampler(GraspSampler):
                                                         sphere_pts,seed)
             grasps += tmp_grasps
 
-
+        # 将夹具沿手指闭合方向平移，直到物体落在夹具中心
         if center_ob_between_gripper:
             print("begin center_ob_between_gripper...")
             for i in range(len(grasps)):
@@ -217,7 +217,10 @@ class PointConeGraspSampler(GraspSampler):
         resolution = 0.0005
         verbose = True
         print(f"Filtering #grasp_poses={len(grasp_poses)}")
-        grasp_poses = my_cpp.filterGraspPose(grasp_poses,list(symmetry_tfs),nocs_pose,canonical_to_nocs,cam_in_world,ee_in_grasp,gripper_in_grasp,filter_approach_dir_face_camera,filter_ik,adjust_collision_pose,upper,lower,self.gripper.trimesh.vertices,self.gripper.trimesh.faces,self.gripper.trimesh_enclosed.vertices,self.gripper.trimesh_enclosed.faces,open_gripper_collision_pts,background_pts,resolution,verbose)
+        grasp_poses = my_cpp.filterGraspPose(grasp_poses,list(symmetry_tfs),nocs_pose,canonical_to_nocs,cam_in_world,ee_in_grasp,gripper_in_grasp,
+                                            filter_approach_dir_face_camera,filter_ik,adjust_collision_pose,upper,lower,self.gripper.trimesh.vertices,
+                                            self.gripper.trimesh.faces,self.gripper.trimesh_enclosed.vertices,self.gripper.trimesh_enclosed.faces,
+                                            open_gripper_collision_pts,background_pts,resolution,verbose)
         grasps = []
         for i in range(len(grasp_poses)):
             grasp = ParallelJawPtGrasp3D(grasp_pose=grasp_poses[i])
@@ -239,7 +242,7 @@ class PointConeGraspSampler(GraspSampler):
         np.random.seed(seed)
         r_ball = self.params['r_ball']
 
-        # begin: 计算 M 矩阵，参考 GPD
+        #region 计算 M 矩阵，参考 GPD
         M = np.zeros((3, 3))
         point_cloud_kdtree = cKDTree(points_for_sample)
         kd_indices = point_cloud_kdtree.query_ball_point(selected_surface.reshape(1,3),r=r_ball)
@@ -271,7 +274,7 @@ class PointConeGraspSampler(GraspSampler):
         minor_pc /= np.linalg.norm(minor_pc)
         major_pc = np.cross(minor_pc, approach_normal) # 大主曲率
         major_pc = major_pc / np.linalg.norm(major_pc)
-        # end: 计算 M 矩阵，参考 GPD
+        #endregion
         if self.params['debug_vis']:
             self.show_grasp_norm_oneside(selected_surface, grasp_normal=approach_normal, grasp_axis=major_pc, minor_pc=minor_pc, scale_factor=0.001)
             self.show_points(selected_surface, color='g', scale_factor=0.005)
@@ -361,7 +364,7 @@ class NocsTransferGraspSampler(GraspSampler):
             grasp_poses.append(grasp.get_grasp_pose_matrix())
         gripper_in_grasp = np.linalg.inv(self.gripper.get_grasp_pose_in_gripper_base())
         print('grasp_poses before filter',len(grasp_poses)*len(symmetry_tfs))
-        verbose = False
+        verbose = True
         adjust_collision_pose = True
         grasp_poses = my_cpp.filterGraspPose(grasp_poses,list(symmetry_tfs),nocs_pose,canonical_to_nocs,
                                             cam_in_world,ee_in_grasp,gripper_in_grasp,filter_approach_dir_face_camera,

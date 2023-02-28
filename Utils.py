@@ -98,7 +98,7 @@ def get_symmetry_tfs(class_name,allow_reflection=True):
       tf = euler_matrix(0,0,rz,axes='sxyz')
       tfs.append(tf)
   elif class_name=='screw':
-    for zrot in np.arange(0,360,5)/180.0*np.pi:
+    for zrot in np.arange(0,360,5)/180.0*np.pi:# 角度转弧度，以 5 角度为步长
       tf = euler_matrix(0,0,zrot,axes='sxyz')
       tfs.append(tf)
   else:
