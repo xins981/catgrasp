@@ -3559,6 +3559,7 @@ class Attachment(object):
         self.grasp_pose = grasp_pose
         self.child = child
         #self.child_link = child_link # child_link=BASE_LINK
+    
     @property
     def bodies(self):
         return flatten_links(self.child) | flatten_links(self.parent, get_link_subtree(

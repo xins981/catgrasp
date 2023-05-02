@@ -132,14 +132,13 @@ class RobotGripper(object):
         return new_gripper
 
 
-
-
-def save_grasp_pose_mesh(gripper,grasp_pose,out_dir,enclosed=False):
+def save_grasp_pose_mesh(gripper, grasp_pose, out_dir, enclosed=False):
   grasp_in_gripper = gripper.get_grasp_pose_in_gripper_base()
   if not enclosed:
     mesh = copy.deepcopy(gripper.trimesh)
   else:
     mesh = copy.deepcopy(gripper.trimesh_enclosed)
-  mesh.apply_transform(grasp_pose@np.linalg.inv(grasp_in_gripper))
+  gripper_in_cam = grasp_pose@np.linalg.inv(grasp_in_gripper)
+  mesh.apply_transform(gripper_in_cam)
   mesh.export(out_dir)
 

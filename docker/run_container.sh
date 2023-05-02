@@ -1,6 +1,6 @@
 docker rm -f catgrasp
 CATGRASP_DIR=$(pwd)/../
-docker run --gpus all --env NVIDIA_DISABLE_REQUIRE=1 \
+xhost +  && docker run --gpus all --env NVIDIA_DISABLE_REQUIRE=1 \
 -it --network=host \
 --name catgrasp  \
 --cap-add=SYS_PTRACE \
@@ -11,8 +11,12 @@ docker run --gpus all --env NVIDIA_DISABLE_REQUIRE=1 \
 -v ~/data/catgrasp/data:/home/catgrasp/data \
 -v ~/data/catgrasp/dataset:/home/catgrasp/dataset \
 -v ~/data/catgrasp/logs:/home/catgrasp/logs \
+-v /etc/localtime:/etc/localtime \
+-v /etc/timezone:/etc/timezone \
 -v /tmp:/tmp  \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
 --ipc=host \
+-e DISPLAY=${DISPLAY} \
 -e GIT_INDEX_FILE \
-0ba8342fbfdb bash
+coopershi/catgrasp:3.0 bash
 

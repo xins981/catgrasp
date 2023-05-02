@@ -136,7 +136,7 @@ class NunocsPredicter:
     with gzip.open(f'{code_dir}/data/object_models/{class_name}_test_nocs2objs.pkl','rb') as ff:
       self.nocs2objs = pickle.load(ff)
 
-  def predict(self,data, net_9d=True, obj_file=None, obj_in_cam=None, debug_dir=None, i_pick=None):
+  def predict(self,data, net_9d=True, obj_file=None, obj_in_cam=None, debug_dir=None, statu=None):
     with torch.no_grad():
       data['cloud_nocs'] = np.zeros(data['cloud_xyz'].shape) # data: 相机系数据
       data['cloud_rgb'] = np.zeros(data['cloud_xyz'].shape)

@@ -63,8 +63,7 @@ PYBIND11_MODULE(ikfast_kuka_iiwa14, m)
       {
           const IkSolutionBase<double>& sol = solutions.GetSolution(i);
           std::vector<double> vsolfree(sol.GetFree().size());
-          sol.GetSolution(&solvalues[0],
-                          vsolfree.size() > 0 ? &vsolfree[0] : NULL);
+          sol.GetSolution(&solvalues[0], vsolfree.size() > 0 ? &vsolfree[0] : NULL);
 
           std::vector<double> individual_solution = std::vector<double>(GetNumJoints());
           for(std::size_t j = 0; j < solvalues.size(); ++j)

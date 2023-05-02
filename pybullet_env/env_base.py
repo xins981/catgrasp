@@ -24,15 +24,15 @@ hostname = socket.gethostname()
 
 
 class EnvBase:
-  def __init__(self,gui=False):
+  def __init__(self,gui=False,con_gui=False):
     if not p.isConnected():
       if gui:
         self.client_id = p.connect(p.GUI)
+        p.configureDebugVisualizer(p.COV_ENABLE_GUI, con_gui)
       else:
         self.client_id = p.connect(p.DIRECT)
     else:
       print('bullet server already connected')
-
     self.gui = gui
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     code_dir = os.path.dirname(os.path.realpath(__file__))
@@ -48,7 +48,7 @@ class EnvBase:
     except Exception as e:
       pass
 
-  # 清空零件
+  # 仅仅清空盒子里的零件
   def reset(self):
     body_ids = PU.get_bodies()
     for body_id in body_ids:

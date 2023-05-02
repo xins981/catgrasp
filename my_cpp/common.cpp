@@ -214,8 +214,8 @@ omp_set_num_threads(int(std::thread::hardware_concurrency()));
       {
         Eigen::Vector3f approach_dir = grasp_in_cam.block(0,0,3,1); 
         approach_dir.normalize();
-        float dot = approach_dir.dot(Eigen::Vector3f(0,0,1)); // 接触向量和相机夹角大于 90°
-        if (dot<0)
+        float dot = approach_dir.dot(Eigen::Vector3f(0,0,1)); 
+        if (dot<0)// 接触向量和相机夹角大于 90°
         {
           if (verbose)
           {
@@ -443,7 +443,79 @@ omp_set_num_threads(int(std::thread::hardware_concurrency()));
   {
     out.row(i) = occupied_pts[i].transpose();
   }
-
+  
   return out;
+}
 
+std::vector<int> filterPushPose(const vectorMatrix4f push_start_poses,
+                                const Eigen::Matrix4f gripper_in_grasp, 
+                                const Eigen::MatrixXf gripper_enclosed_vertices, 
+                                const Eigen::MatrixXi gripper_enclosed_faces, 
+                                const Eigen::MatrixXf gripper_enclosed_collision_pts, 
+                                float octo_resolution)
+{
+  std::vector<int> out;
+  CollisionManager cm_bg;
+  int gripper_enclosed_id = cm_bg.registerMesh(gripper_enclosed_vertices,gripper_enclosed_faces);
+  cm_bg.registerPointCloud(gripper_enclosed_collision_pts,octo_resolution);
+  
+  omp_set_num_threads(int(std::thread::hardware_concurrency()));
+  #pragma omp parallel firstprivate(push_start_poses,gripper_in_grasp,gripper_enclosed_vertices,gripper_enclosed_faces,gripper_enclosed_collision_pts,octo_resolution)
+  {
+    std::vector<int> out_local;
+    #pragma omp for schedule(dynamic)
+    for (int i=0; i<push_start_poses.size(); i++)
+    {
+      Eigen::Matrix4f push_in_cam = push_start_poses[i];
+      for (int col=0;col<3;col++)
+      {
+        push_in_cam.block(0,col,3,1).normalize();
+      }
+      Eigen::Matrix4f gripper_in_cam = push_in_cam * gripper_in_grasp;
+      cm_bg.setTransform(gripper_in_cam, gripper_enclosed_id);
+      if (cm_bg.isAnyCollision())
+      {
+        continue;
+      }
+      out_local.push_back(i);
+    }
+
+    #pragma omp critical
+    {
+      for (int i=0;i<out_local.size();i++)
+      {
+        out.push_back(out_local[i]);
+      }
+    }
+  }
+  return out;
+}
+
+std::vector<int> detectCollisionMove(const Eigen::Matrix<float, Dynamic, 3> translations,
+                                    const Eigen::MatrixXf obj, 
+                                    const Eigen::MatrixXf background, 
+                                    float octo_resolution)
+{
+    std::vector<int> out;
+
+    omp_set_num_threads(int(std::thread::hardware_concurrency()));
+    #pragma omp parallel
+    {
+        CollisionManager cm;
+        int obj_id = cm.registerMesh(obj,octo_resolution);
+        cm.registerPointCloud(background,octo_resolution);
+        #pragma omp for schedule(dynamic)
+        for(int i=0; i<translations.rows(); i++)
+        {
+            Eigen::Matrix4f ob_trans(Eigen::Matrix4f::Identity());
+            ob_trans.block(0,3,3,1) = translations.rows(i);
+            cm.setTransform(ob_trans, obj_id);
+            if(cm.isAnyCollision())
+                continue;
+            #pragma omp critical
+            out.push_back(i);
+        }
+    }
+
+    return out;
 }

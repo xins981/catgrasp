@@ -1,8 +1,13 @@
 class_name: screw   #  nut/hnm/screw
+# class_name: nut   #  nut/hnm/screw
 ob_name: screw_carr_94323A329_NYLON
-model_path: None
-cal_transform: Fasle
-ite_per_obj: 50
+# ob_name: nut_carr_5533K266_COMPRESSION
+model_path: None 
+cal_transform: True
+ite_per_obj: 20
+max_attempt: 2
+vis_dir: catgrasp_vis_A329_NYLON
+# vis_dir: catgrasp_vis_K266_COMPRESSION
 nocs_grasp_sampler_score_larger_than: 0.95
 nocs_grasp_sampler_max_n_grasp: 10000
 cone_grasp_smapler_n_sphere_dir: 30

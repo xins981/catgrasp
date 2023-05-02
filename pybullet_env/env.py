@@ -107,6 +107,7 @@ class Env(EnvBase):
 
 
   def ik_fast_feasible_solutions(self,ee_link_pose,obstacles=[],attachments=[]):
+    # get_ik_func: get_ik_iiwa14
     sols = self.get_ik_func(trans_list=ee_link_pose[:3,3], rot_list=ee_link_pose[:3,:3])
     feasible_sols = []
 
@@ -136,7 +137,9 @@ class Env(EnvBase):
     return feasible_sols
 
 
-  def move_arm(self,link_id,link_pose=None,joint_positions=None,ignore_joint_limits=False,obstacles=[],attachments=[],teleport=False,ignore_all_collsion=False,timeout=999999,use_ikfast=True,collision_fn=None,resolutions=None,check_end_collision=True):
+  def move_arm(self,link_id,link_pose=None,joint_positions=None,ignore_joint_limits=False,obstacles=[],
+               attachments=[],teleport=False,ignore_all_collsion=False,timeout=999999,use_ikfast=True,
+               collision_fn=None,resolutions=None,check_end_collision=True):
     assert link_id in [self.gripper_id, self.ee_id], f"link_id={link_id} not considered"
     cur_joint_positions = PU.get_joint_positions(self.robot_id,joints=self.arm_ids)
 
@@ -153,6 +156,7 @@ class Env(EnvBase):
           ee_in_base = gripper_in_base@np.linalg.inv(self.gripper_in_ee)
         else:
           raise NameError
+        
         if check_end_collision:
           end_obstacles = obstacles
         else:
@@ -187,10 +191,16 @@ class Env(EnvBase):
       return self.path_plan(joint_positions,obstacles,resolutions=resolutions,attachments=attachments)
 
 
-  def path_plan(self,joint_positions,obstacles,conf0=None,ignore_all_collsion=False,custom_limits={},attachments=[],collision_fn=None,resolutions=None,check_end_collision=True):
+  def path_plan(self,joint_positions,obstacles,conf0=None,ignore_all_collsion=False,custom_limits={},
+                attachments=[],collision_fn=None,resolutions=None,check_end_collision=True):
     conf0 = kuka_primitives.BodyConf(self.robot_id,joints=self.arm_ids)
     conf1 = kuka_primitives.BodyConf(self.robot_id,joints=self.arm_ids,configuration=joint_positions)
-    free_motion_fn = kuka_primitives.get_free_motion_gen(self.robot_id, fixed=obstacles, teleport=False, self_collisions=False, ignore_all_collsion=ignore_all_collsion,custom_limits=custom_limits,attachments=attachments,collision_fn=collision_fn,resolutions=resolutions,check_end_collision=check_end_collision)
+    free_motion_fn = kuka_primitives.get_free_motion_gen(self.robot_id, fixed=obstacles, teleport=False, 
+                                                         self_collisions=False, 
+                                                         ignore_all_collsion=ignore_all_collsion,
+                                                         custom_limits=custom_limits,attachments=attachments,
+                                                         collision_fn=collision_fn,resolutions=resolutions,
+                                                         check_end_collision=check_end_collision)
     res = free_motion_fn(conf0, conf1)
     if res is None:
       return None
@@ -198,8 +208,8 @@ class Env(EnvBase):
     return command
 
 
-  def move_arm_catesian(self,link_id,end_pose,move_step=0.001,timeout=999999,attachments=[],obstacles=[],custom_limits={},
-                        collision_fn=None,check_end_collision=True):
+  def move_arm_catesian(self,link_id,end_pose,move_step=0.001,timeout=999999,attachments=[],obstacles=[],
+                        custom_limits={}, collision_fn=None,check_end_collision=True):
     assert link_id in [self.ee_id, self.gripper_id], f'link_id {link_id} wrong'
     state_id = p.saveState()
     if link_id==self.gripper_id:
@@ -225,7 +235,11 @@ class Env(EnvBase):
       q_xyzw = [q_wxyz[1],q_wxyz[2],q_wxyz[3],q_wxyz[0]]
       waypoint_poses.append((trans,q_xyzw))
 
-    joint_positionss = PU.plan_cartesian_motion_ikfast(self.robot_id, arm_joints=self.arm_ids, ee_link=self.ee_id, waypoint_poses=waypoint_poses, get_ik_func=self.get_ik_func, custom_limits=custom_limits,obstacles=obstacles,attachments=attachments,collision_fn=collision_fn,check_end_collision=check_end_collision)
+    joint_positionss = PU.plan_cartesian_motion_ikfast(self.robot_id, arm_joints=self.arm_ids, ee_link=self.ee_id, 
+                                                       waypoint_poses=waypoint_poses, get_ik_func=self.get_ik_func, 
+                                                       custom_limits=custom_limits,obstacles=obstacles,
+                                                       attachments=attachments,collision_fn=collision_fn,
+                                                       check_end_collision=check_end_collision)
 
     if joint_positionss is None:
       print('[WARN] move_arm_catesian::joint_positionss is None')
@@ -295,7 +309,8 @@ class Env(EnvBase):
     for ob_id in ob_ids:
       self.id_to_obj_file[ob_id] = copy.deepcopy(obj_file)
       self.id_to_scales[ob_id] = scale.copy()
-      p.changeDynamics(ob_id,-1,linearDamping=0.9,angularDamping=0.9,lateralFriction=0.9,spinningFriction=0.9,collisionMargin=0.0001)
+      p.changeDynamics(ob_id,-1,linearDamping=0.9,angularDamping=0.9,lateralFriction=0.9,
+                      spinningFriction=0.9,collisionMargin=0.0001)
     return ob_ids
 
 
@@ -353,7 +368,7 @@ class Env(EnvBase):
 
   # 生成杂乱实例
   def make_pile(self, obj_file, scale_range, n_ob_range, remove_condition=None):
-    scale = np.random.uniform(scale_range[0],scale_range[1]) # 1
+    scale = np.random.uniform(scale_range[0],scale_range[1])
     mesh = trimesh.load(obj_file)
     dimension = mesh.vertices.max(axis=0) - mesh.vertices.min(axis=0)
     min_scale = 0.005/dimension.min()  # Shortest side larger than 0.005
@@ -390,7 +405,6 @@ class Env(EnvBase):
         continue
       self.add_duplicate_object_on_pile(obj_file, scale, num_objects-len(new_ids)) # 场景内的零件数还没有达到预期，继续添加
       self.simulation_until_stable()
-
 
     self.ob_ids = list(set(PU.get_bodies())-set(before_ids)) # 零件 id 列表
 

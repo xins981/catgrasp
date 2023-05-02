@@ -19,6 +19,8 @@ PYBIND11_MODULE(my_cpp, m)
 
   m.def("augmentGraspPoses", &augmentGraspPoses);
   m.def("filterGraspPose", &filterGraspPose);
+  m.def("filterPushPose", &filterPushPose);
+  m.def("detectCollisionMove", &detectCollisionMove);
   m.def("makeOccupancyGridFromCloudScan", &makeOccupancyGridFromCloudScan);
 }
 

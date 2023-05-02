@@ -59,10 +59,9 @@ class EnvGrasp(EnvBase):
     self.finger_ids = np.array([1,2],dtype=int)
     self.gripper_max_force = np.ones((2),dtype=float)*100 # 小括号中只有一个元素，没有加逗号，作用就是括号的作用。不是元组。
     p.changeDynamics(self.gripper_id, -1, lateralFriction=0.9, spinningFriction=0.9)
-    # grasp 和 gripper 有什么关系？grasp 系应该是在手指尖建立的，gripper 系是在手腕处建立的
+    # grasp 系在手腕，gripper 系在手臂
     self.grasp_pose_in_gripper_base = self.gripper.get_grasp_pose_in_gripper_base()
     self.grip_dirs = np.array([[0,1,0],[0,-1,0]])
-
 
     self.env_body_ids = PU.get_bodies()
     print("self.env_body_ids",self.env_body_ids)
@@ -246,7 +245,7 @@ def get_finger_contact_area(finger_mesh,ob_in_finger,ob_pts,grip_dir,ob_normals=
     grip_dir = np.array(grip_dir)
     grip_dir = grip_dir/np.linalg.norm(grip_dir)
     pcd = toOpen3dCloud(ob_pts,normals=ob_normals)
-    pcd.transform(ob_in_finger) # 模板（手指系）
+    pcd.transform(ob_in_finger) # 模板（相机系 变换 手指系）
 
     cur_ob_pts = np.asarray(pcd.points).copy()
     if ob_normals is not None:

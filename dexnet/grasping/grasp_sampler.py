@@ -269,12 +269,13 @@ class PointConeGraspSampler(GraspSampler):
             u = u.reshape(-1)
             v = v.reshape(-1)
             return np.dot(u,v)/np.dot(u,u) * u
-        minor_pc = eigvec[:, np.argmin(eigval)].reshape(3) # 小主曲率
+        minor_pc = eigvec[:, np.argmin(eigval)].reshape(3) # 小曲率轴
         minor_pc = minor_pc-proj(approach_normal,minor_pc)
         minor_pc /= np.linalg.norm(minor_pc)
-        major_pc = np.cross(minor_pc, approach_normal) # 大主曲率
+        major_pc = np.cross(minor_pc, approach_normal) # 大曲率轴
         major_pc = major_pc / np.linalg.norm(major_pc)
         #endregion
+        
         if self.params['debug_vis']:
             self.show_grasp_norm_oneside(selected_surface, grasp_normal=approach_normal, grasp_axis=major_pc, minor_pc=minor_pc, scale_factor=0.001)
             self.show_points(selected_surface, color='g', scale_factor=0.005)
@@ -282,7 +283,7 @@ class PointConeGraspSampler(GraspSampler):
             selected_id = np.linalg.norm(points_for_sample-selected_surface.reshape(1,3),axis=1).argmin()
             self.show_line(selected_surface, (selected_surface + normals_for_sample[selected_id]*0.05).reshape(3))
             mlab.show()
-
+        
         R0 = np.concatenate((approach_normal.reshape(3,1), major_pc.reshape(3,1), minor_pc.reshape(3,1)), axis=1)
         Rs = [R0]
         for sphere_pt in sphere_pts:

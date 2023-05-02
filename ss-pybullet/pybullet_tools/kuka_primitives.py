@@ -54,7 +54,6 @@ class BodyGrasp(object):
 
 
 class BodyConf(object):
-
     def __init__(self, body, configuration=None, joints=None):
         if joints is None:
             joints = get_movable_joints(body)
@@ -63,9 +62,11 @@ class BodyConf(object):
         self.body = body
         self.joints = joints
         self.configuration = configuration
+    
     def assign(self):
         set_joint_positions(self.body, self.joints, self.configuration)
         return self.configuration
+    
     def __repr__(self):
         return 'q{}'.format(id(self) % 1000)
 
@@ -81,8 +82,10 @@ class BodyPath(object):
         self.path = path
         self.joints = joints
         self.attachments = attachments
+    
     def bodies(self):
         return set([self.body] + [attachment.body for attachment in self.attachments])
+    
     def iterator(self):
         # TODO: compute and cache these
         # TODO: compute bounding boxes as well
@@ -91,6 +94,7 @@ class BodyPath(object):
             for grasp in self.attachments:
                 grasp.assign()
             yield i
+    
     def control(self, real_time=False, dt=0, joints=None, timeout=9999999):
         if joints is None:
             joints = self.joints
@@ -111,10 +115,13 @@ class BodyPath(object):
             joint_controller(self.body, joints, values, dt=dt, timeout=timeout)
     # def full_path(self, q0=None):
     #     # TODO: could produce sequence of savers
+    
     def refine(self, num_steps=0):
         return self.__class__(self.body, refine_path(self.body, self.joints, self.path, num_steps), self.joints, self.attachments)
+    
     def reverse(self):
         return self.__class__(self.body, self.path[::-1], self.joints, self.attachments)
+    
     def __repr__(self):
         return '{}({},{},{},{})'.format(self.__class__.__name__, self.body, len(self.joints), len(self.path), len(self.attachments))
 
@@ -183,6 +190,8 @@ class Command(object):
                             return False
                         if pairwise_collision(att.parent,obs):
                             return False
+                
+                p.stepSimulation()
                 wait_for_duration(time_step)
         return True
 
@@ -284,7 +293,9 @@ def assign_fluent_state(fluents):
             raise ValueError(name)
     return obstacles
 
-def get_free_motion_gen(robot, fixed=[], attachments=[], teleport=False, self_collisions=True, ignore_all_collsion=False,custom_limits={},collision_fn=None,resolutions=None,check_end_collision=True):
+def get_free_motion_gen(robot, fixed=[], attachments=[], teleport=False, self_collisions=True, 
+                        ignore_all_collsion=False,custom_limits={},collision_fn=None,resolutions=None,
+                        check_end_collision=True):
     def fn(conf1, conf2, fluents=[]):
         assert ((conf1.body == conf2.body) and (conf1.joints == conf2.joints))
         state_id = p.saveState()
@@ -293,7 +304,12 @@ def get_free_motion_gen(robot, fixed=[], attachments=[], teleport=False, self_co
         else:
             conf1.assign()
             obstacles = fixed + assign_fluent_state(fluents)
-            path = plan_joint_motion(robot, conf2.joints, conf2.configuration, obstacles=obstacles, self_collisions=self_collisions, ignore_all_collsion=ignore_all_collsion,custom_limits=custom_limits,attachments=attachments,collision_fn=collision_fn,resolutions=resolutions,check_end_collision=check_end_collision)
+            path = plan_joint_motion(robot, conf2.joints, conf2.configuration, obstacles=obstacles, 
+                                     self_collisions=self_collisions, 
+                                     ignore_all_collsion=ignore_all_collsion,custom_limits=custom_limits,
+                                     attachments=attachments,collision_fn=collision_fn,
+                                     resolutions=resolutions,
+                                     check_end_collision=check_end_collision)
             if path is None:
                 if DEBUG_FAILURE: wait_if_gui('Free motion failed')
                 p.restoreState(stateId=state_id)

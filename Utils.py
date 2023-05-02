@@ -401,9 +401,6 @@ def hinter_sampling(min_n_pts, radius=1):
 
   return pts, pts_level
 
-
-
-
 def to_homo(pts):
   '''
   @pts: (N,3 or 2) will homogeneliaze the last dimension
@@ -420,7 +417,6 @@ def to_homo_torch(pts):
   ones = torch.ones((*pts.shape[:-1],1)).to(pts.device).float()
   homo = torch.cat((pts, ones),dim=-1)
   return homo
-
 
 
 def sph2cart(phi, theta, r):
@@ -490,6 +486,12 @@ def chamfer_distance_between_clouds_mutual(pts1,pts2):
   dists = np.concatenate([dists1,dists2],axis=0).reshape(-1)
   return dists
 
+def chamfer_distance(pts1, pts2):
+  kdtree1 = cKDTree(pts2)
+  dists, indices = kdtree1.query(pts1)
+  dists = np.array(dists)
+  return dists
+
 def cloudA_minus_cloudB(ptsA,ptsB,thres):
   kdtree = cKDTree(ptsA)
   indices_tuple = kdtree.query_ball_point(ptsB,r=thres,n_jobs=-1)
@@ -497,8 +499,6 @@ def cloudA_minus_cloudB(ptsA,ptsB,thres):
   keep_ids = list(set(np.arange(len(ptsA)))-set(remove_ids))
   keep_ids = np.array(keep_ids).astype(int)
   return ptsA[keep_ids], keep_ids
-
-
 
 def compute_cloud_resolution(pts,n_sample=100):
   ids = np.random.choice(len(pts),size=n_sample).astype(int)
@@ -575,3 +575,25 @@ def normalize_3d_coordinate(p, padding=0.1):
   if p_nor.min() < 0:
       p_nor[p_nor < 0] = 0.0
   return p_nor
+
+def farthest_point_sample(pts, npoint):
+  """
+  Input:
+      pcd: pointcloud data, [N, 3]
+      npoint: number of samples
+  Return:
+      ret: sampled point index, [npoint]
+  """ 
+  ret = []
+  n = pts.shape(0)
+  distance = np.ones(n) * 1e10
+  farthest_id = np.random.randint(0, n)
+  for _ in range(npoint):
+    ret.append(farthest_id)
+    distance[farthest_id] = 0
+    farthest_xyz = pts[farthest_id]
+    dist = np.sum((pts - farthest_xyz) ** 2, -1) # （n,)
+    mask = dist < distance
+    distance[mask] = dist[mask]
+    farthest_id = np.argmax(distance)
+  return ret
