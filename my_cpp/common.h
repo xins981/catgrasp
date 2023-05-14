@@ -34,8 +34,7 @@
 #include <deque>
 #include <random>
 #include <octomap/octomap.h>
-#include <octomap/math/Utils.h>
-
+#include <pcl/kdtree/kdtree_flann.h>
 
 #ifndef IKFAST_HAS_LIBRARY
 #define IKFAST_HAS_LIBRARY
@@ -51,13 +50,27 @@ using namespace IKFAST_NAMESPACE;
 using vectorMatrix4f = std::vector<Eigen::Matrix4f,Eigen::aligned_allocator<Eigen::Matrix4f>>;
 class CollisionManager;
 
-std::vector<std::vector<double>> get_ik_within_limits(const Eigen::Matrix4f &ee_in_base, const std::vector<double> &upper, const std::vector<double> &lower);
+std::vector<std::vector<double>> get_ik_within_limits(const Eigen::Matrix4f &ee_in_base, 
+                                                    const std::vector<double> &upper, 
+                                                    const std::vector<double> &lower);
 
 Eigen::Matrix3f directionVecToRotation(Eigen::Vector3f direction, const Eigen::Vector3f &ref);
 
-vectorMatrix4f augmentGraspPoses(const Eigen::Matrix3f &R0, const Eigen::Vector3f &selected_point, const Eigen::MatrixXf &sphere_pts, float inplane_rot_step, float hand_depth, float approach_step, float init_bite);
+vectorMatrix4f augmentGraspPoses(const Eigen::Matrix3f &R0, const Eigen::Vector3f &selected_point, 
+                                const Eigen::MatrixXf &sphere_pts, float inplane_rot_step, float hand_depth, 
+                                float approach_step, float init_bite);
 
-vectorMatrix4f filterGraspPose(const vectorMatrix4f grasp_poses, const vectorMatrix4f symmetry_tfs, const Eigen::Matrix4f nocs_pose, const Eigen::Matrix4f canonical_to_nocs_transform, const Eigen::Matrix4f cam_in_world, const Eigen::Matrix4f ee_in_grasp, const Eigen::Matrix4f gripper_in_grasp, bool filter_approach_dir_face_camera, bool filter_ik, bool adjust_collision_pose, const std::vector<double> upper, const std::vector<double> lower, const Eigen::MatrixXf gripper_vertices, const Eigen::MatrixXi gripper_faces, const Eigen::MatrixXf gripper_enclosed_vertices, const Eigen::MatrixXi gripper_enclosed_faces, const Eigen::MatrixXf gripper_collision_pts, const Eigen::MatrixXf gripper_enclosed_collision_pts, float octo_resolution, bool verbose);
+vectorMatrix4f filterGraspPose(const vectorMatrix4f grasp_poses, const vectorMatrix4f symmetry_tfs, 
+                            const Eigen::Matrix4f nocs_pose, const Eigen::Matrix4f canonical_to_nocs_transform, 
+                            const Eigen::Matrix4f cam_in_world, const Eigen::Matrix4f ee_in_grasp, 
+                            const Eigen::Matrix4f gripper_in_grasp, bool filter_approach_dir_face_camera, 
+                            bool filter_ik, bool adjust_collision_pose, const std::vector<double> upper, 
+                            const std::vector<double> lower, const Eigen::MatrixXf gripper_vertices, 
+                            const Eigen::MatrixXi gripper_faces, const Eigen::MatrixXf gripper_enclosed_vertices, 
+                            const Eigen::MatrixXi gripper_enclosed_faces, 
+                            const Eigen::MatrixXf gripper_collision_pts, 
+                            const Eigen::MatrixXf gripper_enclosed_collision_pts, 
+                            float octo_resolution, bool verbose);
 
 std::vector<int> filterPushPose(const vectorMatrix4f push_start_poses,
                                 const Eigen::Matrix4f gripper_in_grasp, 
@@ -70,9 +83,15 @@ Eigen::MatrixXf makeOccupancyGridFromCloudScan(const Eigen::MatrixXf &pts,
                                                 const Eigen::Matrix3f &K, 
                                                 float resolution);
 
-std::vector<int> detectCollisionMove(const Eigen::Matrix<float, Dynamic, 3> translations,
+std::vector<int> detectCollisionMove(const Eigen::Matrix<float, Eigen::Dynamic, 3> translations,
                                     const Eigen::MatrixXf obj, 
                                     const Eigen::MatrixXf background, 
-                                    float octo_resolution);                                                
+                                    float octo_resolution);
 
+int chamferDistance(const pcl::KdTreeFLANN<pcl::PointXYZ> kdtree, 
+                    const Eigen::MatrixXf obj);                                                                                                 
+
+Eigen::MatrixXf distObj2Env(const Eigen::MatrixXf translations,
+                            const Eigen::MatrixXf obj, 
+                            const Eigen::MatrixXf background);   
 #endif

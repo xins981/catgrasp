@@ -132,7 +132,6 @@ class EnvGrasp(EnvBase):
       time.sleep(sleep)
 
 
-
   def get_grasp_contact_area(self,ob_id,ob_pts,get_pt_on_ob=True,surface_tol=0.002):
     ob_in_world = get_ob_pose_in_world(ob_id)
     out_pts = []

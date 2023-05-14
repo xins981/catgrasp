@@ -18,9 +18,10 @@ class PostInstallCmd(install):
         install.run(self)
 
 
-ext_modules = [CMakeExtension('my_cpp'),
-               ]
+# ext_modules = [Pybind11Extension("my_cpp", ["pybind.cpp"], extra_compile_args=["-g"])]
+ext_modules = [CMakeExtension('my_cpp')]
 
+os.environ["CPPFLAGS"] = "-g"
 
 setup(name='my_cpp',
     version='0.0.0',

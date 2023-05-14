@@ -479,7 +479,7 @@ def place_action(body_id,symmetry_tfs,place_id,env,gripper_vis_id,ob_concave_urd
   p.removeState(tmp_id)
   
   
-  for i_com,command in enumerate(commands): # 在运动轨迹上发生碰撞
+  for i_com,command in enumerate(commands):
     obstacles = []
     if i_com==len(commands)-1:
       obstacles = [place_id]
@@ -490,7 +490,7 @@ def place_action(body_id,symmetry_tfs,place_id,env,gripper_vis_id,ob_concave_urd
       # input('press ENTER to continue')
       break
 
-  env.env_grasp.open_gripper()
+  env_grasp.open_gripper()
   # input('press ENTER to continue')
 
   PU.set_joint_positions(env.robot_id,env.arm_ids,np.zeros((len(env.arm_ids))))

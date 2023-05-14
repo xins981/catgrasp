@@ -585,7 +585,7 @@ def farthest_point_sample(pts, npoint):
       ret: sampled point index, [npoint]
   """ 
   ret = []
-  n = pts.shape(0)
+  n = pts.shape[0]
   distance = np.ones(n) * 1e10
   farthest_id = np.random.randint(0, n)
   for _ in range(npoint):

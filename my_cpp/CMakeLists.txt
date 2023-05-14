@@ -9,14 +9,18 @@ find_package(Boost REQUIRED COMPONENTS system program_options)
 find_package(OpenMP REQUIRED)
 find_package(FCL REQUIRED)
 find_package(pybind11 REQUIRED)
+find_package(PCL 1.11 REQUIRED)
 
 set(PYBIND11_FINDPYTHON ON)
 
+link_directories(${PCL_LIBRARY_DIRS})
+add_definitions(${PCL_DEFINITIONS})
 
 include_directories(
   ${FCL_INCLUDE_DIRS}
   ${PYTHON_INCLUDE_DIRS}
   ${CMAKE_SOURCE_DIR}/../ikfast_pybind/src
+  ${PCL_INCLUDE_DIRS}
 )
 
 
@@ -27,4 +31,4 @@ add_library(MY_LIB SHARED ${MY_SRC} "${CMAKE_SOURCE_DIR}/../ikfast_pybind/src/ku
 target_link_libraries(MY_LIB ${FCL_LIBRARIES} ${OpenMP_CXX_FLAGS})
 
 pybind11_add_module(my_cpp pybind.cpp)
-target_link_libraries(my_cpp PRIVATE MY_LIB)
+target_link_libraries(my_cpp PRIVATE MY_LIB ${PCL_LIBRARIES})

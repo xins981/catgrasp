@@ -18,5 +18,5 @@ xhost +  && docker run --gpus all --env NVIDIA_DISABLE_REQUIRE=1 \
 --ipc=host \
 -e DISPLAY=${DISPLAY} \
 -e GIT_INDEX_FILE \
-coopershi/catgrasp:3.0 bash
+coopershi/catgrasp:4.0 bash
 
