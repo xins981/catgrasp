@@ -280,6 +280,7 @@ def compute_candidate_grasp(rgb,depth,seg,env,ags,symmetry_tfs,run_id,statu,dist
 
   cnt = 0
   for seg_id in ob_n_pix.keys():
+    
     ob_data = {}
     if ik_func is None:
       tmp_ik_func = None
@@ -307,8 +308,9 @@ def compute_candidate_grasp(rgb,depth,seg,env,ags,symmetry_tfs,run_id,statu,dist
         best_body_id = body_id
     body_id = copy.deepcopy(best_body_id)
     #endregion
-
+    
     ob2cam = get_pose_A_in_B(body_id, -1, env.camera.cam_id, -1)
+    tic = time.time()
     grasps,data = compute_candidate_grasp_one_ob(ags,ob_pts,ob_normals, open_gripper_collision_pts=open_gripper_collision_pts, scene_pts=scene_pts, 
                                                 env=env,symmetry_tfs=symmetry_tfs, debug_dir=debug_dir,run_id=run_id,statu=statu,body_id=body_id,dist_atp=dist_atp,
                                                 nocs_predicter=nocs_predicter,gripper=gripper, canonical=canonical,ik_func=tmp_ik_func, ob_in_cam=ob2cam)
@@ -335,6 +337,7 @@ def compute_candidate_grasp(rgb,depth,seg,env,ags,symmetry_tfs,run_id,statu,dist
       grasp_poses.append(grasp_pose)
 
     ret = grasp_predicter.predict_batch(data,grasp_poses)
+    toc = time.time()
     for i_grasp in range(len(grasp_poses)):
       pred_label,confidence,pred = ret[i_grasp]
       p_G = (pred*np.arange(len(pred))).sum()/(len(cfg_grasp['classes'])-1)
@@ -353,6 +356,8 @@ def compute_candidate_grasp(rgb,depth,seg,env,ags,symmetry_tfs,run_id,statu,dist
       return -grasp.p_T_G
 
     grasps = sorted(grasps, key=candidate_compare_key)
+    
+    log(f'seg_{seg_id}: {toc-tic} s.', f'{code_dir}/logs/grasp/log.out')
     yield grasps, body_id
 
 
@@ -594,6 +599,7 @@ def simulate_grasp_with_arm(max_attempt, run_id, statu):
     env.env_grasp.open_gripper()
     env.simulation_until_stable()
     
+
     p.saveBullet('{}/{}_run{:0>2d}_state{:0>2d}.bullet'.format(debug_dir,ob_name,run_id,statu))
     rgb,depth,seg = env.camera.render(env.cam_in_world)
     Image.fromarray(rgb).save('{}/{}_run{:0>2d}_state{:0>2d}_rgb.png' .format(debug_dir,ob_name,run_id,statu)) # 观察值：rgb 图像
@@ -744,7 +750,7 @@ if __name__=="__main__":
   cfg_grasp = YamlConfig("{}/config_grasp.yml".format(code_dir))
   gripper = RobotGripper.load(gripper_dir=cfg_grasp['gripper_dir'][class_name])
   
-  env = Env(cfg,gripper,gui=True)
+  env = Env(cfg,gripper,gui=False)
   set_body_pose_in_world(env.camera.cam_id,env.cam_in_world)
   env.add_bin()
   place_dir = f"{code_dir}/data/object_models/{object_name}_place.obj"
@@ -855,7 +861,6 @@ if __name__=="__main__":
       run_grasp_null = 0
       run_fail_motion_plan = 0
       #endregion
-      
       statu = 1
       simulate_grasp_with_arm(max_attempt, run_id, statu)
       env.reset()

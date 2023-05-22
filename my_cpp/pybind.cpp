@@ -22,6 +22,6 @@ PYBIND11_MODULE(my_cpp, m)
   m.def("filterPushPose", &filterPushPose);
   m.def("detectCollisionMove", &detectCollisionMove);
   m.def("makeOccupancyGridFromCloudScan", &makeOccupancyGridFromCloudScan);
-  m.def("distObj2Env", &distObj2Env);
+  // m.def("distObj2Env", &distObj2Env);
 }
 

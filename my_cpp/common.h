@@ -34,7 +34,7 @@
 #include <deque>
 #include <random>
 #include <octomap/octomap.h>
-#include <pcl/kdtree/kdtree_flann.h>
+// #include <pcl/kdtree/kdtree_flann.h>
 
 #ifndef IKFAST_HAS_LIBRARY
 #define IKFAST_HAS_LIBRARY
@@ -83,15 +83,15 @@ Eigen::MatrixXf makeOccupancyGridFromCloudScan(const Eigen::MatrixXf &pts,
                                                 const Eigen::Matrix3f &K, 
                                                 float resolution);
 
-std::vector<int> detectCollisionMove(const Eigen::Matrix<float, Eigen::Dynamic, 3> translations,
+std::vector<int> detectCollisionMove(const Eigen::MatrixXf translations,
                                     const Eigen::MatrixXf obj, 
                                     const Eigen::MatrixXf background, 
                                     float octo_resolution);
 
-int chamferDistance(const pcl::KdTreeFLANN<pcl::PointXYZ> kdtree, 
-                    const Eigen::MatrixXf obj);                                                                                                 
+// int chamferDistance(const pcl::KdTreeFLANN<pcl::PointXYZ> kdtree, 
+//                     const Eigen::MatrixXf obj);                                                                                                 
 
-Eigen::MatrixXf distObj2Env(const Eigen::MatrixXf translations,
-                            const Eigen::MatrixXf obj, 
-                            const Eigen::MatrixXf background);   
+// Eigen::MatrixXf distObj2Env(const Eigen::MatrixXf translations,
+//                             const Eigen::MatrixXf obj, 
+//                             const Eigen::MatrixXf background);   
 #endif

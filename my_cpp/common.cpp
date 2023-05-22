@@ -449,16 +449,16 @@ omp_set_num_threads(int(std::thread::hardware_concurrency()));
 
 
 std::vector<int> filterPushPose(const vectorMatrix4f push_start_poses,
-                                const Eigen::Matrix4f gripper_in_grasp, 
+                                const Eigen::Matrix4f gripper_in_push, 
                                 const Eigen::MatrixXf gripper_enclosed_vertices, 
                                 const Eigen::MatrixXi gripper_enclosed_faces, 
-                                const Eigen::MatrixXf gripper_enclosed_collision_pts, 
+                                const Eigen::MatrixXf scene_pts, 
                                 float octo_resolution)
 {
   std::vector<int> out;
   CollisionManager cm;
-  int gripper_enclosed_id = cm.registerMesh(gripper_enclosed_vertices,gripper_enclosed_faces);
-  cm.registerPointCloud(gripper_enclosed_collision_pts,octo_resolution);
+  int gripper_enclosed_id = cm.registerMesh(gripper_enclosed_vertices, gripper_enclosed_faces);
+  cm.registerPointCloud(scene_pts, octo_resolution);
   
   omp_set_num_threads(int(std::thread::hardware_concurrency()));
   #pragma omp parallel
@@ -471,7 +471,7 @@ std::vector<int> filterPushPose(const vectorMatrix4f push_start_poses,
       {
         push_in_cam.block(0,col,3,1).normalize();
       }
-      Eigen::Matrix4f gripper_in_cam = push_in_cam * gripper_in_grasp;
+      Eigen::Matrix4f gripper_in_cam = push_in_cam * gripper_in_push;
       cm.setTransform(gripper_in_cam, gripper_enclosed_id);
       if (cm.isAnyCollision())
       {
@@ -486,7 +486,7 @@ std::vector<int> filterPushPose(const vectorMatrix4f push_start_poses,
 }
 
 // 检测目标移动后是否与环境发生碰撞
-std::vector<int> detectCollisionMove(const Eigen::Matrix<float, Eigen::Dynamic, 3> translations,
+std::vector<int> detectCollisionMove(const Eigen::MatrixXf translations,
                                     const Eigen::MatrixXf obj, 
                                     const Eigen::MatrixXf background, 
                                     float octo_resolution)
@@ -497,15 +497,19 @@ std::vector<int> detectCollisionMove(const Eigen::Matrix<float, Eigen::Dynamic, 
     #pragma omp parallel
     {
         CollisionManager cm;
+        bool collis = false;
         int obj_id = cm.registerPointCloud(obj, octo_resolution);
         cm.registerPointCloud(background,octo_resolution);
         #pragma omp for schedule(dynamic)
         for(int i=0; i<translations.rows(); i++)
         {
-            Eigen::Matrix4f ob_trans(Eigen::Matrix4f::Identity());
-            ob_trans.block(0,3,3,1) = translations.row(i);
-            cm.setTransform(ob_trans, obj_id);
-            if(cm.isAnyCollision())
+            collis = false;
+            Eigen::Matrix4f ob_transl(Eigen::Matrix4f::Identity());
+            ob_transl.block(0,3,3,1) = translations.row(i);
+            cm.setTransform(ob_transl, obj_id);
+            collis = cm.isAnyCollision();
+            cm.setTransform(ob_transl.inverse(), obj_id);
+            if(collis)
                 continue;
             #pragma omp critical
             out.push_back(i);
@@ -516,84 +520,84 @@ std::vector<int> detectCollisionMove(const Eigen::Matrix<float, Eigen::Dynamic, 
 }
 
 
-int chamferDistance(const pcl::KdTreeFLANN<pcl::PointXYZ> kdtree, 
-                    const Eigen::MatrixXf obj)
-{
-    std::vector<float> dist_ret;
-    std::vector<float> sqr_dists;
-    std::vector<int> inds;
-    pcl::PointXYZ pt;
-    // #pragma omp parallel
-    // {
-    //   #pragma omp for schedule(dynamic)
-      for(int i = 0; i < obj.rows(); i++)
-      {
-          pt.x = obj(i, 0);
-          pt.y = obj(i, 1);
-          pt.z = obj(i, 2);
-          // pt(obj[i][0], obj[i][1], obj[i][2]);
-          if(kdtree.nearestKSearch(pt, 1, inds, sqr_dists) <= 0)
-              continue;
-          // #pragma omp critical
-          dist_ret.push_back(sqr_dists[0]);
-      }
-    // }
+// int chamferDistance(const pcl::KdTreeFLANN<pcl::PointXYZ> kdtree, 
+//                     const Eigen::MatrixXf obj)
+// {
+//     std::vector<float> dist_ret;
+//     std::vector<float> sqr_dists;
+//     std::vector<int> inds;
+//     pcl::PointXYZ pt;
+//     // #pragma omp parallel
+//     // {
+//     //   #pragma omp for schedule(dynamic)
+//       for(int i = 0; i < obj.rows(); i++)
+//       {
+//           pt.x = obj(i, 0);
+//           pt.y = obj(i, 1);
+//           pt.z = obj(i, 2);
+//           // pt(obj[i][0], obj[i][1], obj[i][2]);
+//           if(kdtree.nearestKSearch(pt, 1, inds, sqr_dists) <= 0)
+//               continue;
+//           // #pragma omp critical
+//           dist_ret.push_back(sqr_dists[0]);
+//       }
+//     // }
     
-    return accumulate(dist_ret.begin(), dist_ret.end(), 0);
-}
+//     return accumulate(dist_ret.begin(), dist_ret.end(), 0);
+// }
 
 
 // 计算物体到环境的距离
-Eigen::MatrixXf distObj2Env(const Eigen::MatrixXf translations,
-                            const Eigen::MatrixXf obj, 
-                            const Eigen::MatrixXf background)
-{
-    pcl::PointCloud<pcl::PointXYZ>::Ptr pc_background(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::PointXYZ pt;
-    for(int i = 0; i < background.rows(); i++)
-    {
-        pt.x = obj(i, 0);
-        pt.y = obj(i, 1);
-        pt.z = obj(i, 2);
-        // pt(obj[i][0], obj[i][1], obj[i][2]);
-        pc_background->points.push_back(pt);
-    }
+// Eigen::MatrixXf distObj2Env(const Eigen::MatrixXf translations,
+//                             const Eigen::MatrixXf obj, 
+//                             const Eigen::MatrixXf background)
+// {
+//     pcl::PointCloud<pcl::PointXYZ>::Ptr pc_background(new pcl::PointCloud<pcl::PointXYZ>);
+//     pcl::PointXYZ pt;
+//     for(int i = 0; i < background.rows(); i++)
+//     {
+//         pt.x = obj(i, 0);
+//         pt.y = obj(i, 1);
+//         pt.z = obj(i, 2);
+//         // pt(obj[i][0], obj[i][1], obj[i][2]);
+//         pc_background->points.push_back(pt);
+//     }
 
-    pcl::KdTreeFLANN<pcl::PointXYZ> kdTree_bg;
-    kdTree_bg.setInputCloud(pc_background);
-    Eigen::Matrix<float, 2, Eigen::Dynamic> ret;
-    Eigen::Vector2f id_dist_pair(0, 0);
-    Eigen::Vector3f t(0, 0, 0);
-    Eigen::MatrixXf obj_trslated;
-    int dist_origin = chamferDistance(kdTree_bg, obj);
-    int dist = 0;
-    int index = 0;
+//     pcl::KdTreeFLANN<pcl::PointXYZ> kdTree_bg;
+//     kdTree_bg.setInputCloud(pc_background);
+//     Eigen::Matrix<float, 2, Eigen::Dynamic> ret;
+//     Eigen::Vector2f id_dist_pair(0, 0);
+//     Eigen::Vector3f t(0, 0, 0);
+//     Eigen::MatrixXf obj_trslated;
+//     int dist_origin = chamferDistance(kdTree_bg, obj);
+//     int dist = 0;
+//     int index = 0;
 
-    // 计算每个动作施加后的状态距离
-    omp_set_num_threads(int(std::thread::hardware_concurrency()));
-    #pragma omp parallel
-    {
-        #pragma omp for schedule(dynamic)
-        for(int i=0; i<translations.rows(); i++)
-        {
-            t(0) = translations(i, 0);
-            t(1) = translations(i, 1);
-            t(2) = translations(i, 2);
-            obj_trslated = obj.rowwise() + t.transpose();
+//     // 计算每个动作施加后的状态距离
+//     omp_set_num_threads(int(std::thread::hardware_concurrency()));
+//     #pragma omp parallel
+//     {
+//         #pragma omp for schedule(dynamic)
+//         for(int i=0; i<translations.rows(); i++)
+//         {
+//             t(0) = translations(i, 0);
+//             t(1) = translations(i, 1);
+//             t(2) = translations(i, 2);
+//             obj_trslated = obj.rowwise() + t.transpose();
 
-            dist = chamferDistance(kdTree_bg, obj_trslated);
+//             dist = chamferDistance(kdTree_bg, obj_trslated);
             
-            if(dist_origin <= dist)
-                continue;
+//             if(dist_origin <= dist)
+//                 continue;
             
-            id_dist_pair(0) = i;
-            id_dist_pair(1) = dist;
-            #pragma omp critical
-            if(!ret.cols())
-                index = ret.cols()-1;
-            ret.col(index) = id_dist_pair;
-        }
-    }
+//             id_dist_pair(0) = i;
+//             id_dist_pair(1) = dist;
+//             #pragma omp critical
+//             if(!ret.cols())
+//                 index = ret.cols()-1;
+//             ret.col(index) = id_dist_pair;
+//         }
+//     }
 
-    return ret;
-}
+//     return ret;
+// }

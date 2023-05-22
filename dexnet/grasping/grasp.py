@@ -633,6 +633,7 @@ class ParallelJawPtGrasp3D(PointGrasp):
                        width=self.open_width,
                        camera_intr=camera_intr)
 
+
 class VacuumPoint(Grasp):
     """ Defines a vacuum target point and axis in 3D space (5 DOF)
     """
